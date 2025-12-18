@@ -22,30 +22,6 @@ It visualizes financial transaction graphs with risk scores, highlights suspicio
 
 ## 🧠 Architecture
 
-# 🔍 Visual Analytics — Mule Hunter
-
-Live Demo: **https://mule-hunter-viz-latest.onrender.com/**
-
-Visual Analytics is the forensic visualization and explainability module of the Mule Hunter platform.  
-It transforms anomaly detection results into an interactive, explainable 3D graph experience for fast, meaningful insights.
-
----
-
-## 🚀 Overview
-
-This module is responsible for:
-
-- **Zero-Day Anomaly Detection** using Extended Isolation Forest (EIF)
-- **3D Fraud Network Visualization** (WebGL)
-- **Explainable AI (XAI)** using SHAP explanations
-- **Interactive Node Inspector** for forensic analysis
-
-It visualizes financial transaction graphs with risk scores, highlights suspicious nodes, and provides human-readable explanations.
-
----
-
-## 🧠 Architecture
-
 - nodes.csv + transactions.csv   
 
 - Extended Isolation Forest (EIF)   
