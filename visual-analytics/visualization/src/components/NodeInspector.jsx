@@ -3,15 +3,16 @@ import { useState } from "react";
 export default function NodeInspector({ node, explanations, onClose }) {
   const [aiText, setAiText] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [closing, setClosing] = useState(false);
 
   if (!node) return null;
-
+  console.log("Selected Node:", node);
+  const isAnomalous = node.is_anomalous === 1;
   const reasons = explanations?.[node.id] || [];
 
   const generateAIExplanation = async () => {
     setLoading(true);
 
-    // 🔮 For hackathon/demo: mock AI
     setTimeout(() => {
       setAiText(
         `Account ${node.id} shows unusual transaction behavior with high connectivity 
@@ -20,15 +21,38 @@ to anomalous accounts. Rapid inflow and outflow patterns indicate potential mule
       setLoading(false);
     }, 1200);
   };
+  const handleClose = () => {
+    setClosing(true);
+
+    setTimeout(() => {
+      setAiText(null);
+      setClosing(false);
+      onClose();
+    }, 250);
+  };
 
   return (
-    <aside className="w-[380px] h-full bg-zinc-900 border-l border-zinc-800 overflow-y-auto animate-slide-in">
+    <aside
+      className={`fixed right-0 top-0 pt-10 z-100 w-95 h-screen overflow-y-auto animate-slide-in
+    ${
+      isAnomalous
+        ? "bg-zinc-900 border-l border-red-600 shadow-[0_0_20px_rgba(239,68,68,0.4)]"
+        : "bg-zinc-900 border-l border-green-600 shadow-[0_0_20px_rgba(34,197,94,0.4)]"
+    }
+  `}
+    >
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
-        <h2 className="text-lg font-semibold">
-          Node Forensics: <span className="text-red-400">ACC{node.id}</span>
+      <div className="flex justify-between">
+        <h2 className="text-lg font-semibold pl-5">
+          Node Forensics:{" "}
+          <span className={isAnomalous ? "text-red-400" : "text-green-400"}>
+            ACC{node.id}
+          </span>
         </h2>
-        <button onClick={onClose} className="text-gray-400 hover:text-white">
+        <button
+          onClick={handleClose}
+          className="text-gray-400 hover:text-white pr-6 cursor-pointer"
+        >
           ✕
         </button>
       </div>
@@ -37,20 +61,23 @@ to anomalous accounts. Rapid inflow and outflow patterns indicate potential mule
       <Section title="Account Summary">
         <Metric
           label="Risk Status"
-          value={node.is_anomalous ? "Anomalous" : "Normal"}
-          highlight
+          value={node.is_anomalous === 1 ? "Anomalous" : "Normal"}
+          highlight={node.is_anomalous === 1}
         />
-        <Metric
-          label="Risk Score"
-          value={Math.abs(node.height * 10).toFixed(0)}
-        />
+
+        <Metric label="Risk Score" value={(node.height * 100).toFixed(1)} />
       </Section>
 
       {/* Metrics */}
       <Section title="Metrics">
-        <Metric label="Total Transactions" value={node.total_tx || "—"} />
+        <Metric label="Total Transactions" value={Math.round(node.size)} />
+
         <Metric label="Suspicious vs Normal" value="40 / 160" />
-        <Metric label="Connectivity Score" value="92" />
+        <Metric
+          label="Connectivity Score"
+          value="92"
+          color={isAnomalous ? "red" : "green"}
+        />
       </Section>
 
       {/* Explainability */}
@@ -106,11 +133,18 @@ function Section({ title, children }) {
   );
 }
 
-function Metric({ label, value, highlight }) {
+function Metric({ label, value, highlight, color }) {
+  const colorClass =
+    color === "red"
+      ? "text-red-400"
+      : color === "green"
+      ? "text-green-400"
+      : "";
+
   return (
     <div className="flex justify-between text-sm mb-2">
       <span className="text-gray-400">{label}</span>
-      <span className={highlight ? "text-red-400 font-semibold" : ""}>
+      <span className={`${highlight ? "font-semibold" : ""} ${colorClass}`}>
         {value}
       </span>
     </div>
