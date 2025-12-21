@@ -6,7 +6,7 @@ from torch_geometric.nn import SAGEConv
 import os
 
 #CONFIG
-SHARED_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-data")
+SHARED_DATA_DIR = "/app/shared-data"
 MODEL_PATH = os.path.join(SHARED_DATA_DIR, "mule_model.pth")
 DATA_PATH = os.path.join(SHARED_DATA_DIR, "processed_graph.pt")
 
