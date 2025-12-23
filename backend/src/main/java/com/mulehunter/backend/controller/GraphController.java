@@ -60,5 +60,11 @@ public class GraphController {
 
                     return new GraphResponseDTO(nodes, links);
                 });
+
     }
+    @GetMapping("/transactions")
+    public Mono<List<Transaction>> getAllTransactions() {
+        return transactionRepository.findAll().collectList();
+    }
+
 }

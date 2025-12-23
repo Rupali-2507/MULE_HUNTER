@@ -1,19 +1,7 @@
 services:
-  mongo:
-    image: mongo:6
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo_data:/data/db
-
   backend:
     build: .
     ports:
       - "8080:8080"
-    depends_on:
-      - mongo
     environment:
-      SPRING_DATA_MONGODB_URI: mongodb://mongo:27017/mulehunter
-
-volumes:
-  mongo_data:
+      MONGODB_URI: mongodb+srv://<Prisha123@cluster0.pjwljsk.mongodb.net/>:<Prisha@123>@cluster0.pjwljsk.mongodb.net/<mulehunter>
