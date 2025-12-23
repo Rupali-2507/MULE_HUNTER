@@ -3,9 +3,6 @@ name: CI/CD Pipeline
 on:
   push:
     branches: [ "main" ]
-    paths:
-      - 'control-tower/**'
-
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
