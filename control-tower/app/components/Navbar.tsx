@@ -42,6 +42,7 @@ const Navbar = () => {
           Network
         </a>
         <a href="/stats" className="hover:text-[#CAFF33] transition-colors">Stats</a>
+        <a href="/transaction" className="hover:text-[#CAFF33] transition-colors">Transactions</a>
         <a href="/service" className="hover:text-[#CAFF33] transition-colors">Request Service</a>
         {/* DASHBOARD - Only visible to Admins */}
         {session?.user?.role === "admin" && (
