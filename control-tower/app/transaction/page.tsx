@@ -29,7 +29,7 @@ export default function FakeTransactionPage() {
 
     try {
       // 1️⃣ Send transaction (graph edge)
-      await fetch("/backend/api/transactions", {
+      await fetch("http://localhost:8080/api/transaction", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

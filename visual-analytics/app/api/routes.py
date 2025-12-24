@@ -1,15 +1,14 @@
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Depends
 from app.services.orchestrator import run_full_pipeline
+from app.core.security import verify_internal_api_key
 
 router = APIRouter()
 
-
-@router.post("/run/full")
+@router.post(
+    "/visual/reanalyze/all",
+    dependencies=[Depends(verify_internal_api_key)]
+)
 def run_full_visual_analytics(background_tasks: BackgroundTasks):
-    """
-    Triggers the complete ML + explainability pipeline.
-    Runs asynchronously in the background.
-    """
     background_tasks.add_task(run_full_pipeline)
     return {
         "status": "started",
