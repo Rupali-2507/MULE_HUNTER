@@ -17,8 +17,8 @@ export const metadata: Metadata = {
   title: "Mule Hunter | Fraud Intelligence",
   description: "Fraud Intelligence and Digital Payment Security",
   icons: {
-    icon: "/logo.png", // Path to your icon in the /public folder
-    shortcut: "/logo.png",
+    icon: "/icon.png", // Path to your icon in the /public folder
+    shortcut: "/icon.png",
   },
 };
 export default function RootLayout({
