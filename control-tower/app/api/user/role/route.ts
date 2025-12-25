@@ -19,10 +19,18 @@ export async function GET() {
   }
 
   const roleToken = jwt.sign(
-    { role: userRole }, 
-    secret as string, 
-    { expiresIn: "1d" } 
-  );
+  {
+    sub: session.user.id,
+    role: userRole,
+    purpose: "viz-access",
+  },
+  secret,
+  {
+    expiresIn: "10m",
+    issuer: "mulehunter-frontend",
+  }
+);
+
 
   return NextResponse.json({ roleToken });
 }

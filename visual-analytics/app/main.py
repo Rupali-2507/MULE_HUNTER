@@ -7,6 +7,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# All API routes
 app.include_router(router, prefix="/visual-analytics/api")
 
 

@@ -1,71 +1,70 @@
-import requests
+import logging
+import httpx
 from app.config import BACKEND_BASE_URL, REQUEST_TIMEOUT
 
 
-def _check_response(resp):
-    if not resp.ok:
-        raise RuntimeError(
-            f"Backend API failed [{resp.status_code}]: {resp.text}"
+# =============================
+# INTERNAL HELPERS
+# =============================
+
+async def _post_safe(url: str, data: list):
+    """
+    Async backend POST with timeout + error isolation.
+    This MUST be awaited so it actually executes.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            await client.post(url, json=data)
+            logging.info(
+                f"POST success → {url} ({len(data)} records)"
+            )
+    except Exception as e:
+        # Backend failure must NOT crash pipeline
+        logging.error(f"POST failed → {url} | {e}")
+
+
+# =============================
+# READ APIs (AWAIT RESPONSE)
+# =============================
+
+async def get_nodes_enriched():
+    """
+    READ call → we wait for backend response.
+    """
+    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+        resp = await client.get(
+            f"{BACKEND_BASE_URL}/backend/api/nodes/enriched"
         )
 
+        if not resp.is_success:
+            logging.error(
+                f"Backend API failed [{resp.status_code}]: {resp.text}"
+            )
+            raise RuntimeError("Failed to fetch enriched nodes")
 
-# -----------------------------
-# READ APIs
-# -----------------------------
-
-def get_nodes_enriched():
-    resp = requests.get(
-        f"{BACKEND_BASE_URL}/backend/api/nodes/enriched",
-        timeout=REQUEST_TIMEOUT
-    )
-    _check_response(resp)
-    return resp.json()
+        return resp.json()
 
 
-# -----------------------------
-# WRITE APIs
-# -----------------------------
+# =============================
+# WRITE APIs (AWAITABLE, SAFE)
+# =============================
 
-def post_anomaly_scores(data):
-    resp = requests.post(
+async def post_anomaly_scores(data: list):
+    await _post_safe(
         f"{BACKEND_BASE_URL}/backend/api/visual/anomaly-scores/batch",
-        json=data,
-        timeout=REQUEST_TIMEOUT
+        data
     )
-    _check_response(resp)
 
 
-# def post_nodes_scored(data):
-#     resp = requests.post(
-#         f"{BACKEND_BASE_URL}/nodes/scored/batch",
-#         json=data,
-#         timeout=REQUEST_TIMEOUT
-#     )
-#     _check_response(resp)
-
-
-def post_shap_explanations(data):
-    resp = requests.post(
+async def post_shap_explanations(data: list):
+    await _post_safe(
         f"{BACKEND_BASE_URL}/backend/api/visual/shap-explanations/batch",
-        json=data,
-        timeout=REQUEST_TIMEOUT
+        data
     )
-    _check_response(resp)
 
 
-def post_fraud_explanations(data):
-    resp = requests.post(
+async def post_fraud_explanations(data: list):
+    await _post_safe(
         f"{BACKEND_BASE_URL}/backend/api/visual/fraud-explanations/batch",
-        json=data,
-        timeout=REQUEST_TIMEOUT
+        data
     )
-    _check_response(resp)
-
-
-# def post_nodes_viz(data):
-#     resp = requests.post(
-#         f"{BACKEND_BASE_URL}/visual/nodes-viz/batch",
-#         json=data,
-#         timeout=REQUEST_TIMEOUT
-#     )
-#     _check_response(resp)

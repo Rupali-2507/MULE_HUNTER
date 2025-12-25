@@ -22,18 +22,16 @@ public class AnomalyScoreService {
 
     public Mono<Void> saveBatch(Flux<AnomalyScoreDTO> dtos) {
 
-        return dtos.flatMap(dto ->
-                repository.findByNodeId(dto.getNodeId())
-                        .defaultIfEmpty(new AnomalyScore())
-                        .flatMap(existing -> {
-                            existing.setNodeId(dto.getNodeId());
-                            existing.setAnomalyScore(dto.getAnomalyScore());
-                            existing.setIsAnomalous(dto.getIsAnomalous());
-                            existing.setModel(dto.getModel());
-                            existing.setSource(dto.getSource());
-                            existing.setUpdatedAt(Instant.now());
-                            return repository.save(existing);
-                        })
-        ).then();
+        return dtos.flatMap(dto -> repository.findByNodeId(dto.getNodeId())
+                .defaultIfEmpty(new AnomalyScore())
+                .flatMap(existing -> {
+                    existing.setNodeId(dto.getNodeId());
+                    existing.setAnomalyScore(dto.getAnomalyScore());
+                    existing.setIsAnomalous(dto.getIsAnomalous());
+                    existing.setModel(dto.getModel());
+                    existing.setSource(dto.getSource());
+                    existing.setUpdatedAt(Instant.now());
+                    return repository.save(existing);
+                })).then();
     }
 }
