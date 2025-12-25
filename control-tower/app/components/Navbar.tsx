@@ -87,7 +87,7 @@ const NavContent = ({ session, onLinkClick }: { session: any, onLinkClick?: () =
   <>
     <Link href="/" onClick={onLinkClick} className="hover:text-[#CAFF33] transition-colors">Home</Link>
     <a 
-      href="https://fraud-viz-latest.onrender.com/" 
+      href="https://mule-hunter.vercel.app/" 
       target="_blank" 
       rel="noopener noreferrer" 
       onClick={onLinkClick}
