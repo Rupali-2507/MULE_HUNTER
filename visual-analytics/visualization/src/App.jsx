@@ -9,7 +9,7 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   async function getRoleToken() {
-    const res = await fetch("https://13.48.249.157:3000/app/api/user/role", {
+    const res = await fetch("https://13.48.249.157:3000/api/user/role", {
       credentials: "include",
     });
 
