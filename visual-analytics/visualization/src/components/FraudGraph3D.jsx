@@ -76,13 +76,13 @@ export default function FraudGraph3D({
   };
 
   // LOAD GRAPH DATA (CORRECT + SAFE)
-  if (!token) {
-    return (
-      <div className="flex h-screen items-center justify-center text-white">
-        Unauthorized
-      </div>
-    );
-  }
+  // if (!token) {
+  //   return (
+  //     <div className="flex h-screen items-center justify-center text-white">
+  //       Unauthorized
+  //     </div>
+  //   );
+  // }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -91,9 +91,9 @@ export default function FraudGraph3D({
       try {
         const res = await fetch(`http://localhost:8080/api/graph`, {
           signal: controller.signal,
-          headers: {
+          /*headers: {
             Authorization: `Bearer ${token}`,
-          },
+          },*/
         });
 
         const text = await res.text();
