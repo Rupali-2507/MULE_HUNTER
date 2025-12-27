@@ -13,8 +13,8 @@ COPY . .
 
 # Accept variables from GitHub Actions
 ARG MONGODB_URI
-ARG AUTH_SECRET
-ARG AUTH_URL
+ARG NEXTAUTH_SECRET
+ARG NEXTAUTH_URL
 ARG JWT_SECRET
 ARG NEXT_PUBLIC_EMAILJS_SERVICE_ID
 ARG NEXT_PUBLIC_EMAILJS_TEMPLATE_ID
@@ -22,8 +22,8 @@ ARG NEXT_PUBLIC_EMAILJS_PUBLIC_KEY
 
 # Set them as Environment Variables for the Build
 ENV MONGODB_URI=$MONGODB_URI
-ENV AUTH_SECRET=$AUTH_SECRET
-ENV AUTH_URL=$AUTH_URL
+ENV NEXTAUTH_SECRET=$NEXTAUTH_SECRET
+ENV NEXTAUTH_URL=$NEXTAUTH_URL
 ENV JWT_SECRET=$JWT_SECRET
 ENV NEXT_PUBLIC_EMAILJS_SERVICE_ID=$NEXT_PUBLIC_EMAILJS_SERVICE_ID
 ENV NEXT_PUBLIC_EMAILJS_TEMPLATE_ID=$NEXT_PUBLIC_EMAILJS_TEMPLATE_ID
@@ -35,16 +35,20 @@ RUN npm run build
 # Stage 3: Runner
 FROM node:20-alpine AS runner
 WORKDIR /app
+
 ENV NODE_ENV production
+ENV NEXT_TELEMETRY_DISABLED 1
+
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
 COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./package.json
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 USER nextjs
+
 EXPOSE 3000
 ENV PORT 3000
-CMD ["npm", "start"]
+
+CMD ["node", "server.js"]
