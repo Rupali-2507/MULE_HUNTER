@@ -10,6 +10,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -18,26 +19,42 @@ public class TransactionService {
 
     private final TransactionRepository repository;
     private final NodeEnrichedService nodeEnrichedService;
-    private final WebClient webClient;
+    
+    private final WebClient aiWebClient;
+    private final WebClient visualWebClient;
 
     @Value("${visual.internal-api-key}")
     private String visualInternalApiKey;
 
+    //  DYNAMIC CONFIGURATION (Works for Docker AND Local)
     public TransactionService(
             TransactionRepository repository,
-            NodeEnrichedService nodeEnrichedService
+            NodeEnrichedService nodeEnrichedService,
+            
+            // Inject URL from environment/properties. Default to localhost for teammates.
+            @Value("${ai.service.url:http://localhost:8000}") String aiServiceUrl,
+            @Value("${visual.service.url:http://localhost:8000}") String visualServiceUrl
     ) {
         this.repository = repository;
         this.nodeEnrichedService = nodeEnrichedService;
-        this.webClient = WebClient.builder()
-                .baseUrl("http://host.docker.internal:8000")
+        
+        System.out.println("🔌 CONNECTING AI TO: " + aiServiceUrl);
+        System.out.println("🔌 CONNECTING VISUALS TO: " + visualServiceUrl);
+
+        // 1. Client for AI
+        this.aiWebClient = WebClient.builder()
+                .baseUrl(aiServiceUrl) 
+                .build();
+
+        // 2. Client for Visuals
+        this.visualWebClient = WebClient.builder()
+                .baseUrl(visualServiceUrl) 
                 .build();
     }
 
     public Mono<Transaction> createTransaction(TransactionRequest request) {
-
         Transaction tx = Transaction.from(request);
-
+        
         Long sourceNodeId;
         Long targetNodeId;
         try {
@@ -49,35 +66,24 @@ public class TransactionService {
 
         double amount = tx.getAmount().doubleValue();
 
-        // 1. Persist ground truth
         return repository.save(tx)
-
-                // 2. Update graph state (side effects, non-blocking)
+                // PARALLEL EXECUTION
                 .flatMap(savedTx ->
                         Mono.when(
                                 nodeEnrichedService.handleOutgoing(sourceNodeId, amount),
-                                nodeEnrichedService.handleIncoming(targetNodeId, amount)
+                                nodeEnrichedService.handleIncoming(targetNodeId, amount),
+                                triggerVisualMlPipeline(savedTx) 
                         ).thenReturn(savedTx)
                 )
-
-                // 3. Call AI engine and persist verdict if present
+                // AI CALL
                 .flatMap(savedTx ->
                         callAiModel(sourceNodeId, targetNodeId, amount)
                                 .flatMap(aiResponse -> applyAiVerdict(savedTx, aiResponse))
                                 .defaultIfEmpty(savedTx)
-                )
-
-                // 4. Trigger visualization ONLY if fraud
-                .flatMap(finalTx -> {
-                    if (finalTx.isSuspectedFraud()) {
-                        return triggerVisualMlPipeline(finalTx).thenReturn(finalTx);
-                    }
-                    return Mono.just(finalTx);
-                });
+                );
     }
 
-    /* ------------------------- AI ------------------------- */
-
+    /* ------------------------- AI CALL ------------------------- */
     private Mono<JsonNode> callAiModel(Long source, Long target, double amount) {
         Map<String, Object> payload = Map.of(
                 "source_id", source,
@@ -86,19 +92,20 @@ public class TransactionService {
                 "timestamp", Instant.now().toString()
         );
 
-        return webClient.post()
+        return aiWebClient.post()
                 .uri("/analyze-transaction")
                 .bodyValue(payload)
                 .retrieve()
                 .bodyToMono(JsonNode.class)
-                .onErrorResume(e -> Mono.empty());
+                .onErrorResume(e -> {
+                    System.err.println("❌ AI FAILED: " + e.getMessage());
+                    return Mono.empty();
+                });
     }
 
+    /* ------------------------- MAP RESULTS ------------------------- */
     private Mono<Transaction> applyAiVerdict(Transaction tx, JsonNode aiResponse) {
-
-        if (aiResponse == null || !aiResponse.has("risk_score")) {
-            return Mono.just(tx);
-        }
+        if (aiResponse == null || !aiResponse.has("risk_score")) return Mono.just(tx);
 
         double riskScore = aiResponse.get("risk_score").asDouble();
         String verdict = aiResponse.get("verdict").asText();
@@ -107,29 +114,42 @@ public class TransactionService {
         tx.setVerdict(verdict);
         tx.setSuspectedFraud(riskScore > 0.5);
 
+        tx.setOutDegree(aiResponse.path("out_degree").asInt(0));
+        tx.setRiskRatio(aiResponse.path("risk_ratio").asDouble(0.0));
+        tx.setPopulationSize(aiResponse.path("population_size").asText("Unknown"));
+        tx.setJa3Detected(aiResponse.path("ja3_detected").asBoolean(false));
+        tx.setUnsupervisedModelName(aiResponse.path("model_version").asText("GraphSAGE"));
+        tx.setUnsupervisedScore(aiResponse.path("unsupervised_score").asDouble(riskScore));
+
+        List<String> accounts = new ArrayList<>();
+        if (aiResponse.has("linked_accounts") && aiResponse.get("linked_accounts").isArray()) {
+            aiResponse.get("linked_accounts").forEach(node -> accounts.add(node.asText()));
+        }
+        tx.setLinkedAccounts(accounts);
+
         return repository.save(tx);
     }
 
-    /* ------------------------- Visualization ------------------------- */
-
+    /* ------------------------- VISUALS CALL ------------------------- */
     private Mono<Void> triggerVisualMlPipeline(Transaction tx) {
-
         Map<String, Object> payload = Map.of(
-                "trigger", "FRAUD_VERDICT",
+                "trigger", "TRANSACTION_EVENT", 
                 "transactionId", tx.getId(),
-                "riskScore", tx.getRiskScore(),
                 "nodes", List.of(
                         Map.of("nodeId", Long.parseLong(tx.getSourceAccount()), "role", "SOURCE"),
                         Map.of("nodeId", Long.parseLong(tx.getTargetAccount()), "role", "TARGET")
                 )
         );
 
-        return webClient.post()
-                .uri("/visual/reanalyze/nodes")
+        return visualWebClient.post()
+                .uri("/visual-analytics/api/visual/reanalyze/nodes")
                 .header("X-INTERNAL-API-KEY", visualInternalApiKey)
                 .bodyValue(payload)
                 .retrieve()
                 .bodyToMono(Void.class)
-                .onErrorResume(e -> Mono.empty());
+                .onErrorResume(e -> {
+                    System.err.println("⚠️ Visual Trigger Warning: " + e.getMessage());
+                    return Mono.empty();
+                });
     }
 }
