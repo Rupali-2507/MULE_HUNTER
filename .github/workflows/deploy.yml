@@ -67,6 +67,7 @@ jobs:
                   - NEXTAUTH_SECRET=${{ secrets.NEXTAUTH_SECRET }}
                   - JWT_SECRET=${{ secrets.JWT_SECRET }}
                   - NEXTAUTH_URL=${{ secrets.NEXTAUTH_URL }}
+                  - AUTH_TRUST_HOST=true
                   - NODE_ENV=production
                 restart: always
             EOF

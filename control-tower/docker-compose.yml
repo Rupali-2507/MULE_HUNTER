@@ -19,7 +19,7 @@ services:
     environment:
       - MONGODB_URI=${MONGODB_URI}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
-      - AUTH_URL=${AUTH_URL}
+      - NEXTAUTH_URL=${NEXTAUTH_URL}
       - JWT_SECRET=${JWT_SECRET}
       - NODE_ENV=production
     restart: always
