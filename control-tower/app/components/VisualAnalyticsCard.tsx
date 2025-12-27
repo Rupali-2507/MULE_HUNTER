@@ -1,4 +1,5 @@
 "use client";
+import { useEffect, useRef } from "react";
 
 type VisualAnalyticsCardProps = {
   vaStatus: "idle" | "running" | "done" | "failed";
@@ -19,10 +20,21 @@ export default function VisualAnalyticsCard({
     );
   }
 
+
+// Inside the component:
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [vaEvents]);
+  
+
   return (
     <div className="h-full p-4 bg-gray-900 rounded-xl border border-gray-800 flex flex-col">
       {/* ================= HEADER ================= */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between shrink-0">
         <h3 className="font-semibold text-orange-400">
           🟠 Visual-Analytics — Unsupervised ML
         </h3>
@@ -40,12 +52,12 @@ export default function VisualAnalyticsCard({
         </span>
       </div>
 
-      <p className="text-xs text-gray-400 mt-1">
+      <p className="text-xs text-gray-400 mt-1 shrink-0">
         Graph-based · Population-aware · Explainable (EIF + SHAP)
       </p>
 
       {/* ================= SUMMARY (FIXED) ================= */}
-      <div className="mt-3 space-y-2 text-sm text-gray-300">
+      <div className="mt-3 space-y-2 text-sm text-gray-300 shrink-0">
         {vaEvents.map((e, i) => (
           <div key={i}>
             {e.stage === "population_loaded" && (
@@ -104,8 +116,8 @@ export default function VisualAnalyticsCard({
       </div>
 
       {/* ================= LIVE STREAM (SCROLLABLE) ================= */}
-      <div className="mt-4 flex-1 bg-[#0f172a] border border-gray-700 rounded-xl p-3 overflow-y-auto">
-        <h3 className="text-[#caff33] font-semibold mb-2 flex items-center gap-2">
+      <div className="mt-4 flex-1 bg-[#0f172a] border border-gray-700 rounded-xl p-3 overflow-y-auto" ref={scrollRef}>
+        <h3 className="text-[#caff33] font-semibold mb-2 flex items-center gap-2 sticky top-0 bg-[#0f172a] py-1 z-10">
           🧠 Visual ML (Live)
           {vaStatus === "running" && (
             <span className="text-xs text-yellow-400 animate-pulse">

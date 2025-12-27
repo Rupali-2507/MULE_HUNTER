@@ -145,10 +145,10 @@ export default function FakeTransactionPage() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-black text-white">
+    <div className="flex flex-col min-h-screen bg-black text-white">
       <Navbar />
 
-      <main className="flex-1 overflow-hidden p-6 lg:p-8">
+      <main className="flex-1 p-6 lg:p-8">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-full">
           {/* LEFT */}
           <div className="border border-gray-800 rounded-2xl p-6 bg-[#0A0A0A]">
@@ -188,8 +188,8 @@ export default function FakeTransactionPage() {
           </div>
 
           {/* RIGHT */}
-          <div className="border border-gray-800 rounded-2xl p-6 bg-[#0A0A0A] flex flex-col h-full">
-            <h2 className="text-xl font-bold mb-4">
+          <div className="border border-gray-800 rounded-2xl p-6 bg-[#0A0A0A] flex flex-col h-[80vh] sticky top-8">
+            <h2 className="text-xl font-bold mb-4 shrink-0">
               Investigation Dashboard
             </h2>
 
