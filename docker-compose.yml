@@ -1,23 +1,20 @@
 version: '3.8'
 
 services:
-  # SERVICE 1: AI INTELLIGENCE ENGINE (Muskan) 
-  # Role: Fraud Detection, Graph Neural Networks, ID Mapping
+  # 1. AI INTELLIGENCE ENGINE  - MOVED TO 8001
   ai-engine:
     build: 
       context: ./ai-engine
       dockerfile: Dockerfile
     container_name: mule-hunter-ai
     ports:
-      - "8000:8000"
+      - "8001:8000" 
     volumes:
-      # Maps local shared data so AI can read nodes.csv
       - ./shared-data:/shared-data
     networks:
       - mule-net
 
-  
-  # SERVICE 2: BANKING TRANSACTION CORE (Prisha) 
+  # SERVICE 2: BANKING TRANSACTION CORE 
   backend:
     build: 
       context: ./backend
@@ -27,28 +24,47 @@ services:
       - "8080:8080"
     environment:
       SPRING_PROFILES_ACTIVE: docker
-      
       SPRING_DATA_MONGODB_URI: ${SPRING_DATA_MONGODB_URI}
       VISUAL_INTERNAL_API_KEY: ${VISUAL_INTERNAL_API_KEY}
       JWT_SECRET: ${JWT_SECRET}
       
-      AI_SERVICE_URL: ${AI_SERVICE_URL}
+      AI_SERVICE_URL: http://mule-hunter-ai:8000
+      VISUAL_SERVICE_URL: http://visual-analytics:8000
       
     depends_on:
       - ai-engine
+      - visual-analytics
     networks:
       - mule-net
 
-  # SERVICE 3: CONTROL TOWER (Frontend) 
-  # Role: Dashboard, Visuals, User Interaction
+  # 3. RUPALI'S VISUAL ANALYTICS (The Graph)
+  visual-analytics:
+    container_name: visual-analytics
+    build:
+      context: ./visual-analytics
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    environment:
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-${VISUAL_INTERNAL_API_KEY}}
+      - BACKEND_BASE_URL=http://mule-hunter-backend:8080
+      - REQUEST_TIMEOUT=60
+    volumes:
+      - ./visual-analytics/visualization:/app/visualization
+      - ./visual-analytics/scripts:/app/scripts
+    networks:
+      - mule-net
+
+  # 4. CONTROL TOWER (Frontend)
   control-tower:
     image: control-tower:latest
     container_name: control-tower-app
     build:
-      context: ./control-tower  # <--- Points to your subfolder
+      context: ./control-tower
       dockerfile: Dockerfile
       args:
-        # Build-time variables for Next.js
         - MONGODB_URI=${MONGODB_URI}
         - AUTH_SECRET=${AUTH_SECRET}
         - AUTH_URL=${AUTH_URL}
@@ -60,7 +76,6 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # Run-time variables
       - MONGODB_URI=${MONGODB_URI}
       - AUTH_SECRET=${AUTH_SECRET}
       - AUTH_URL=${AUTH_URL}
@@ -71,7 +86,6 @@ services:
     networks:
       - mule-net
 
-# SHARED NETWORK
 networks:
   mule-net:
     driver: bridge
