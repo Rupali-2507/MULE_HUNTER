@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import ForceGraph3D from "react-force-graph-3d";
 import * as THREE from "three";
 
 export default function FraudGraph3D({
@@ -8,8 +7,9 @@ export default function FraudGraph3D({
   alertedNodeId,
   token,
 }) {
-  const fgRef = useRef();
-  const containerRef = useRef();
+  const fgRef = useRef(null);
+  const containerRef = useRef(null);
+
   const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
   const ZOOM_STEP = 120;
@@ -17,6 +17,7 @@ export default function FraudGraph3D({
   const MAX_Z = 1800;
 
   const [mounted, setMounted] = useState(false);
+  const [ForceGraph3D, setForceGraph3D] = useState(null);
 
   const [rawGraph, setRawGraph] = useState(null);
   const [showOnlyFraud, setShowOnlyFraud] = useState(false);
@@ -30,7 +31,7 @@ export default function FraudGraph3D({
   const [searchId, setSearchId] = useState("");
   const [searchError, setSearchError] = useState("");
 
-  // ---------- MOUNT GUARD (CRITICAL FOR WEBGL) ----------
+  // ---------- CLIENT MOUNT ----------
   useEffect(() => {
     setMounted(true);
     setDimensions({
@@ -39,7 +40,22 @@ export default function FraudGraph3D({
     });
   }, []);
 
-  // ---------- RESIZE HANDLER ----------
+  // ---------- LOAD FORCE GRAPH SAFELY (CRITICAL FIX) ----------
+  useEffect(() => {
+    let cancelled = false;
+
+    import("react-force-graph-3d").then((mod) => {
+      if (!cancelled) {
+        setForceGraph3D(() => mod.default);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ---------- RESIZE ----------
   useEffect(() => {
     if (!mounted) return;
 
@@ -112,7 +128,7 @@ export default function FraudGraph3D({
 
     loadGraph();
     return () => controller.abort();
-  }, [mounted]);
+  }, [mounted, API_BASE]);
 
   // ---------- FRAUD FILTER ----------
   const visibleGraph = useMemo(() => {
@@ -182,7 +198,7 @@ export default function FraudGraph3D({
   };
 
   // ---------- HARD GUARD ----------
-  if (!mounted || !visibleGraph) {
+  if (!mounted || !visibleGraph || !ForceGraph3D) {
     return (
       <div className="flex h-screen items-center justify-center text-white">
         Initializing 3D Engine…
@@ -192,7 +208,7 @@ export default function FraudGraph3D({
 
   // ---------- RENDER ----------
   return (
-    <div className="relative h-screen w-full bg-linear-to-br from-black via-slate-900 to-black">
+    <div className="relative h-screen w-full bg-black">
       <div ref={containerRef} className="h-full w-full">
         <ForceGraph3D
           ref={fgRef}
