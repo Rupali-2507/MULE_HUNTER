@@ -9,12 +9,7 @@ export default function FraudGraph3D({
 }) {
   const fgRef = useRef(null);
   const containerRef = useRef(null);
-
   const API_BASE = import.meta.env.VITE_API_BASE_URL;
-
-  const ZOOM_STEP = 120;
-  const MIN_Z = 150;
-  const MAX_Z = 1800;
 
   const [mounted, setMounted] = useState(false);
   const [ForceGraph3D, setForceGraph3D] = useState(null);
@@ -23,15 +18,11 @@ export default function FraudGraph3D({
   const [showOnlyFraud, setShowOnlyFraud] = useState(false);
   const [activeNodeId, setActiveNodeId] = useState(null);
 
-  const [dimensions, setDimensions] = useState({
-    width: 0,
-    height: 0,
-  });
-
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [searchId, setSearchId] = useState("");
   const [searchError, setSearchError] = useState("");
 
-  // ---------- CLIENT MOUNT ----------
+  // ---------- MOUNT ----------
   useEffect(() => {
     setMounted(true);
     setDimensions({
@@ -40,7 +31,7 @@ export default function FraudGraph3D({
     });
   }, []);
 
-  // ---------- LOAD FORCE GRAPH SAFELY (CRITICAL FIX) ----------
+  // ---------- SAFE RUNTIME LOAD (CRITICAL FIX) ----------
   useEffect(() => {
     let cancelled = false;
 
@@ -58,27 +49,16 @@ export default function FraudGraph3D({
   // ---------- RESIZE ----------
   useEffect(() => {
     if (!mounted) return;
-
-    const onResize = () => {
+    const onResize = () =>
       setDimensions({
         width: window.innerWidth,
         height: window.innerHeight,
       });
-    };
-
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, [mounted]);
 
-  // ---------- LOAD GRAPH DATA ----------
-  // if (!token) {
-  //   return (
-  //     <div className="flex h-screen items-center justify-center text-white">
-  //       Unauthorized
-  //     </div>
-  //   );
-  // }
-
+  // ---------- LOAD GRAPH ----------
   useEffect(() => {
     if (!mounted) return;
 
@@ -88,20 +68,14 @@ export default function FraudGraph3D({
       try {
         const res = await fetch(`${API_BASE}/api/graph`, {
           signal: controller.signal,
-          /*headers: {
-            Authorization: `Bearer ${token}`,
-          },*/
         });
 
         const text = await res.text();
-        if (text.trim().startsWith("<")) {
-          console.error("HTML received instead of JSON:", text);
-          return;
-        }
+        if (text.trim().startsWith("<")) return;
 
         const data = JSON.parse(text);
 
-        const normalized = {
+        setRawGraph({
           nodes: data.nodes.map((n) => ({
             id: n.nodeId,
             is_anomalous: n.isAnomalous,
@@ -116,21 +90,15 @@ export default function FraudGraph3D({
               target: l.target,
               amount: Number(l.amount ?? 1),
             })),
-        };
-
-        setRawGraph(normalized);
-      } catch (err) {
-        if (err.name !== "AbortError") {
-          console.error("Could not load graph data:", err);
-        }
-      }
+        });
+      } catch {}
     }
 
     loadGraph();
     return () => controller.abort();
   }, [mounted, API_BASE]);
 
-  // ---------- FRAUD FILTER ----------
+  // ---------- FILTER ----------
   const visibleGraph = useMemo(() => {
     if (!rawGraph) return null;
     if (!showOnlyFraud) return rawGraph;
@@ -142,60 +110,12 @@ export default function FraudGraph3D({
     return {
       nodes: rawGraph.nodes.filter((n) => fraudIds.has(n.id)),
       links: rawGraph.links.filter((l) => {
-        const src = typeof l.source === "object" ? l.source.id : l.source;
-        const tgt = typeof l.target === "object" ? l.target.id : l.target;
-        return fraudIds.has(src) && fraudIds.has(tgt);
+        const s = typeof l.source === "object" ? l.source.id : l.source;
+        const t = typeof l.target === "object" ? l.target.id : l.target;
+        return fraudIds.has(s) && fraudIds.has(t);
       }),
     };
   }, [rawGraph, showOnlyFraud]);
-
-  // ---------- CAMERA DEFAULT ----------
-  useEffect(() => {
-    if (!fgRef.current || !rawGraph) return;
-    fgRef.current.cameraPosition(
-      { x: 0, y: 0, z: 900 },
-      { x: 0, y: 0, z: 0 },
-      0
-    );
-  }, [rawGraph]);
-
-  // ---------- CAMERA ON SELECT ----------
-  useEffect(() => {
-    if (!selectedNode || !fgRef.current) return;
-    fgRef.current.cameraPosition(
-      {
-        x: selectedNode.x * 1.3,
-        y: selectedNode.y * 1.3,
-        z: selectedNode.z * 1.3 + 120,
-      },
-      selectedNode,
-      1500
-    );
-  }, [selectedNode]);
-
-  // ---------- SEARCH ----------
-  const handleSearch = () => {
-    if (!visibleGraph || !fgRef.current) return;
-
-    const node = visibleGraph.nodes.find(
-      (n) => String(n.id) === searchId.trim()
-    );
-
-    if (!node) {
-      setSearchError("Account not found in current view");
-      return;
-    }
-
-    setSearchError("");
-    setActiveNodeId(node.id);
-    onNodeSelect(node);
-
-    fgRef.current.cameraPosition(
-      { x: node.x * 1.4, y: node.y * 1.4, z: node.z * 1.4 + 150 },
-      node,
-      1200
-    );
-  };
 
   // ---------- HARD GUARD ----------
   if (!mounted || !visibleGraph || !ForceGraph3D) {
@@ -208,7 +128,7 @@ export default function FraudGraph3D({
 
   // ---------- RENDER ----------
   return (
-    <div className="relative h-screen w-full bg-black">
+    <div className="h-screen w-full bg-black">
       <div ref={containerRef} className="h-full w-full">
         <ForceGraph3D
           ref={fgRef}
@@ -217,8 +137,6 @@ export default function FraudGraph3D({
           height={dimensions.height}
           backgroundColor="rgba(0,0,0,0)"
           enableNodeDrag={false}
-          warmupTicks={120}
-          cooldownTicks={0}
           onNodeClick={(node) => {
             onNodeSelect(node);
             setActiveNodeId(node.id);
@@ -228,19 +146,18 @@ export default function FraudGraph3D({
               selectedNode?.id === node.id || activeNodeId === node.id;
             const isAlerted = alertedNodeId === node.id;
 
-            const geometry = new THREE.SphereGeometry(
-              isAlerted ? 7 : isSelected ? 6 : 3,
-              18,
-              18
+            return new THREE.Mesh(
+              new THREE.SphereGeometry(
+                isAlerted ? 7 : isSelected ? 6 : 3,
+                18,
+                18
+              ),
+              new THREE.MeshStandardMaterial({
+                color: node.color,
+                emissive: isSelected ? node.color : "#000",
+                emissiveIntensity: isSelected ? 0.9 : 0,
+              })
             );
-
-            const material = new THREE.MeshStandardMaterial({
-              color: node.color,
-              emissive: isSelected ? node.color : "#000000",
-              emissiveIntensity: isSelected ? 0.9 : 0,
-            });
-
-            return new THREE.Mesh(geometry, material);
           }}
         />
       </div>
