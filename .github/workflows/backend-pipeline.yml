@@ -38,5 +38,8 @@ jobs:
             EOF
             # docker-compose down
             # docker-compose up -d --build 
-            docker-compose up -d --build  --force-recreate --no-deps backend
+            echo "Clearing port 8082..."
+            docker ps -q --filter "publish=8082" | xargs -r docker stop
+            docker ps -aq --filter "publish=8082" | xargs -r docker rm -f
+            docker-compose up -d --build --no-deps backend
             docker image prune -f
