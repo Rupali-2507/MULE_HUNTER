@@ -51,8 +51,8 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             # 1. Prepare Directory
-            mkdir -p ~/control-tower
-            cd ~/control-tower
+            mkdir -p ~/control-tower-deploy
+            cd ~/control-tower-deploy
 
             # 2. Login to Docker Hub
             echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
