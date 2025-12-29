@@ -37,3 +37,7 @@ build/
 shared-data/*.csv
 shared-data/*.json
 !shared-data/.keep
+
+# Allow required AI graph files
+!shared-data/nodes.csv
+!shared-data/transactions.csv
