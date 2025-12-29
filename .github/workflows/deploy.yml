@@ -51,6 +51,9 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             # 1. Prepare Directory
+            # mkdir -p ~/control-tower
+            # cd ~/control-tower
+
             mkdir -p ~/control-tower-deploy
             cd ~/control-tower-deploy
 

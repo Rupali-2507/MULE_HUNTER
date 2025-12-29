@@ -31,7 +31,7 @@ jobs:
             set -e
             cd ~/MULE_HUNTER
             git pull origin main
-            cat <<EOF > .env
+            cat <<''EOF'' > .env
             SPRING_DATA_MONGODB_URI=$SPRING_DATA_MONGODB_URI
             VISUAL_INTERNAL_API_KEY=$VISUAL_INTERNAL_API_KEY
             JWT_SECRET=$JWT_SECRET
