@@ -40,7 +40,7 @@ export default function FakeTransactionPage() {
     
     const checkAiHealth = async () => {
       try {
-        const response = await fetch("http://51.20.82.63:8082/api/health/ai");
+        const response = await fetch("http://13.60.91.248:8082/api/health/ai");
         const data = await response.json();
         setAiHealth(data);
         setAiChecking(false);
@@ -88,7 +88,7 @@ export default function FakeTransactionPage() {
 
     try {
       // ================= TRANSACTION (POST to Java -> Python) =================
-      const txResponse = await fetch("http://51.20.82.63:8082/api/transactions", {
+      const txResponse = await fetch("http://13.60.91.248:8082/api/transactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(transactionData),

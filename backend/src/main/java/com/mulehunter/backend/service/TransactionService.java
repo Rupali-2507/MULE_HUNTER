@@ -31,7 +31,7 @@ public class TransactionService {
             TransactionRepository repository,
             NodeEnrichedService nodeEnrichedService,
             
-            @Value("${ai.service.url:http://localhost:8001}") String aiServiceUrl,
+            @Value("${ai.service.url:http://56.228.10.113:8001}") String aiServiceUrl,
             @Value("${visual.service.url:http://13.61.143.100:8000}") String visualServiceUrl
     ) {
         this.repository = repository;

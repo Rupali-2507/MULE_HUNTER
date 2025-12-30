@@ -48,9 +48,9 @@ export default function ServicePage() {
               <span className="flex items-center justify-center w-5 h-5 rounded-full bg-lime-500 shrink-0">
                 <Check className="w-3 h-3 text-black" strokeWidth={3} />
               </span>
-              <h2 className="flex items-center font-bold uppercase tracking-wider">
+              {/* <h2 className="flex items-center font-bold uppercase tracking-wider">
                 Institutional Grade | Fraud Intelligence
-              </h2>
+              </h2> */}
             </div>
 
             <div className="pt-3 text-2xl md:text-3xl font-helvitica-neue leading-tight">

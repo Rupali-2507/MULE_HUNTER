@@ -1,91 +1,55 @@
-version: '3.8'
+version: "3.8"
 
 services:
-  # 1. AI INTELLIGENCE ENGINE  - MOVED TO 8001
+  # 1. AI INTELLIGENCE ENGINE
   ai-engine:
-    build: 
+    container_name: mule-hunter-ai
+    build:
       context: ./ai-engine
       dockerfile: Dockerfile
-    container_name: mule-hunter-ai
     ports:
-      - "8001:8000" 
+      - "8001:8000"
     volumes:
       - ./shared-data:/shared-data
-    networks:
-      - mule-net
 
-  # SERVICE 2: BANKING TRANSACTION CORE 
-  backend:
-    build: 
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: mule-hunter-backend
-    ports:
-      - "8082:8080"
-    environment:
-      SPRING_PROFILES_ACTIVE: docker
-      SPRING_DATA_MONGODB_URI: ${SPRING_DATA_MONGODB_URI}
-      VISUAL_INTERNAL_API_KEY: ${VISUAL_INTERNAL_API_KEY}
-      JWT_SECRET: ${JWT_SECRET}
-      
-      AI_SERVICE_URL: http://mule-hunter-ai:8000
-      VISUAL_SERVICE_URL: http://visual-analytics:8000
-      
-    depends_on:
-      - ai-engine
-      - visual-analytics
-    networks:
-      - mule-net
-
-  # 3. RUPALI'S VISUAL ANALYTICS (The Graph)
+  # 2. VISUAL ANALYTICS (Graph Service)
   visual-analytics:
     container_name: visual-analytics
     build:
       context: ./visual-analytics
       dockerfile: Dockerfile
-    env_file:
-      - .env
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-${VISUAL_INTERNAL_API_KEY}}
-      - BACKEND_BASE_URL=http://mule-hunter-backend:8080
+      - BACKEND_BASE_URL=http://13.60.91.248:8082
       - REQUEST_TIMEOUT=60
     volumes:
       - ./visual-analytics/visualization:/app/visualization
       - ./visual-analytics/scripts:/app/scripts
-    networks:
-      - mule-net
 
-  # 4. CONTROL TOWER (Frontend)
+  # 3. CONTROL TOWER (Frontend)
   control-tower:
-    image: control-tower:latest
     container_name: control-tower-app
+    image: control-tower:latest
     build:
       context: ./control-tower
       dockerfile: Dockerfile
       args:
-        - MONGODB_URI=${MONGODB_URI}
+        - NEXT_PUBLIC_API_URL=http://13.60.91.248:8082
         - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
         - NEXTAUTH_URL=${NEXTAUTH_URL}
         - JWT_SECRET=${JWT_SECRET}
         - NEXT_PUBLIC_EMAILJS_SERVICE_ID=${NEXT_PUBLIC_EMAILJS_SERVICE_ID}
         - NEXT_PUBLIC_EMAILJS_TEMPLATE_ID=${NEXT_PUBLIC_EMAILJS_TEMPLATE_ID}
         - NEXT_PUBLIC_EMAILJS_PUBLIC_KEY=${NEXT_PUBLIC_EMAILJS_PUBLIC_KEY}
-        - NEXT_PUBLIC_API_URL=http://localhost:8080
     ports:
       - "3000:3000"
     environment:
-      - MONGODB_URI=${MONGODB_URI}
+      - NODE_ENV=production
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
       - NEXTAUTH_URL=${NEXTAUTH_URL}
       - JWT_SECRET=${JWT_SECRET}
-      - NODE_ENV=production
-    depends_on:
-      - backend
-    networks:
-      - mule-net
-
-networks:
-  mule-net:
-    driver: bridge
+      - MONGODB_URI=${MONGODB_URI}
