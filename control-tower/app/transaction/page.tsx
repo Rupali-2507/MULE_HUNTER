@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect,useRef } from "react";
 import Footer from "../components/Footer";
 import Navbar from "../components/Navbar";
 import VisualAnalyticsCard from "../components/VisualAnalyticsCard";
@@ -24,6 +24,7 @@ interface AISystemStatus {
 export default function FakeTransactionPage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
+  const completedRef = useRef(false);
 
   const [vaEvents, setVaEvents] = useState<any[]>([]);
   const [vaStatus, setVaStatus] =
@@ -168,10 +169,12 @@ es.onmessage = (event) => {
   setVaEvents(prev => [...prev, { stage, data }]);
 
   if (stage === "unsupervised_completed") {
+    completedRef.current = true;   // ✅ PERSISTENT
     setVaStatus("done");
     es.close();
   }
 };
+
 
 
 // 2️⃣ Catch named events
@@ -202,11 +205,17 @@ const handleEvent = (event: MessageEvent) => {
   es.addEventListener(stage, handleEvent);
 });
 
+
+
+
 // 3️⃣ DO NOT CLOSE ON ERROR (critical)
 es.onerror = (e) => {
+  if (completedRef.current) return; // ✅ CORRECT GUARD
   console.error("🔴 SSE ERROR", e);
-  setVaStatus(prev => prev === "done" ? "done" : "failed");
+  setVaStatus("failed");
 };
+
+
 
 
 
