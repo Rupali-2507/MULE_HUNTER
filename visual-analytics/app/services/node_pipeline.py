@@ -11,6 +11,10 @@ from app.clients.backend_client import (
     post_shap_explanation,
 )
 
+
+# =========================
+# SSE EVENT EMITTER
+# =========================
 async def emit_event(queue, stage: str, data: Dict[str, Any]):
     """
     Push ML step updates to SSE queue.
@@ -23,9 +27,9 @@ async def emit_event(queue, stage: str, data: Dict[str, Any]):
         })
 
 
-# NORMALIZATION (camelCase → snake_case)
-
-
+# =========================
+# NORMALIZATION
+# =========================
 def normalize_enriched_node(enriched: dict) -> dict:
     """
     Converts backend NodeEnriched payload into ML-safe schema.
@@ -43,10 +47,9 @@ def normalize_enriched_node(enriched: dict) -> dict:
     }
 
 
-
-# FALLBACK SHAP FOR NORMAL NODES
-
-
+# =========================
+# FALLBACK SHAP
+# =========================
 def build_non_anomalous_shap(node_id: int, score: float) -> dict:
     """
     Placeholder explanation for non-anomalous nodes.
@@ -66,37 +69,49 @@ def build_non_anomalous_shap(node_id: int, score: float) -> dict:
     }
 
 
-
-# MAIN PIPELINE (EVENT-DRIVEN)
-
+# =========================
+# MAIN PIPELINE (SSE SAFE)
+# =========================
 async def run_node_pipeline(nodes: List, event_queue: asyncio.Queue = None):
     """
-    Runs Visual-Analytics ML ONLY for nodes involved
-    in a transaction event.
+    Runs Visual-Analytics ML pipeline with SSE-safe lifecycle.
+    Emits exactly ONE terminal event.
     """
 
-    all_nodes = await fetch_all_enriched_nodes()
-    await emit_event(event_queue, "population_loaded", {
-       "total_nodes": len(all_nodes)
-    })
+    try:
+        # -------------------------
+        # STREAM START
+        # -------------------------
+        await emit_event(event_queue, "stream_started", {
+            "nodes": [n.nodeId for n in nodes]
+        })
 
+        # -------------------------
+        # FETCH POPULATION
+        # -------------------------
+        all_nodes = await fetch_all_enriched_nodes()
 
-    if not all_nodes or len(all_nodes) < 10:
-        print("Skipping ML: insufficient reference population")
-        return
+        await emit_event(event_queue, "population_loaded", {
+            "total_nodes": len(all_nodes)
+        })
 
-    normalized_population = [
-        normalize_enriched_node(n)
-        for n in all_nodes
-        if n.get("nodeId") is not None
-    ]
+        if not all_nodes or len(all_nodes) < 10:
+            await emit_event(event_queue, "unsupervised_completed", {
+                "final_status": "SKIPPED",
+                "reason": "Insufficient reference population"
+            })
+            return
 
-    print(" Total enriched nodes fetched:", len(all_nodes))
+        normalized_population = [
+            normalize_enriched_node(n)
+            for n in all_nodes
+            if n.get("nodeId") is not None
+        ]
 
-    for node in nodes:
-        node_id = None
-
-        try:
+        # -------------------------
+        # PROCESS EACH NODE
+        # -------------------------
+        for node in nodes:
             node_id = node.nodeId
             if node_id is None:
                 continue
@@ -109,11 +124,11 @@ async def run_node_pipeline(nodes: List, event_queue: asyncio.Queue = None):
                 continue
 
             target_node = normalize_enriched_node(raw_node)
-            await emit_event(event_queue, "scoring_started", {
-               "node_id": node_id,
-               "features_used": list(target_node.keys())
-            })
 
+            await emit_event(event_queue, "scoring_started", {
+                "node_id": node_id,
+                "features_used": list(target_node.keys())
+            })
 
             reference_nodes = [
                 n for n in normalized_population
@@ -123,7 +138,9 @@ async def run_node_pipeline(nodes: List, event_queue: asyncio.Queue = None):
             if len(reference_nodes) < 10:
                 continue
 
-            #   ML CALL
+            # -------------------------
+            # ML SCORE
+            # -------------------------
             score, is_anomalous = score_single_node(
                 enriched_node=target_node,
                 reference_nodes=reference_nodes
@@ -135,61 +152,48 @@ async def run_node_pipeline(nodes: List, event_queue: asyncio.Queue = None):
                 "is_anomalous": is_anomalous
             })
 
-
-            print(
-                f" FINAL DECISION | node={node_id} "
-                f"score={score:.6f} "
-                f"isAnomalous={is_anomalous}"
-            )
-
-            # Human explanation
             reasons = build_fraud_explanation(target_node, score)
 
+            # -------------------------
             # SHAP
+            # -------------------------
             if is_anomalous:
-                print(" RUNNING SHAP for node:", node_id)
                 await emit_event(event_queue, "shap_started", {
                     "node_id": node_id,
                     "reference_samples": min(300, len(reference_nodes))
                 })
+
                 shap_input = []
 
-                #  Add NORMAL reference nodes
-                for n in reference_nodes[:300]:  
+                for n in reference_nodes[:300]:
                     shap_input.append({
                         **n,
                         "is_anomalous": 0,
                         "anomaly_score": 0.0,
                     })
 
-                #  Add TARGET anomalous node LAST
                 shap_input.append({
                     **target_node,
                     "is_anomalous": 1,
                     "anomaly_score": score,
                 })
 
-                print(" SHAP INPUT SIZE =", len(shap_input))
-                print(" SHAP y.sum() =", sum(x["is_anomalous"] for x in shap_input))
-
                 shap_results = run_shap(shap_input)
-                print(" SHAP RESULTS RAW =", shap_results)
+
                 await emit_event(event_queue, "shap_completed", {
                     "node_id": node_id,
                     "top_factors": shap_results[0]["top_factors"]
                 })
-
-
             else:
-                shap_results = [
-                    build_non_anomalous_shap(node_id, score)
-                ]
+                shap_results = [build_non_anomalous_shap(node_id, score)]
                 await emit_event(event_queue, "shap_skipped", {
                     "node_id": node_id,
                     "reason": "Node classified as normal"
                 })
 
-            # Persist
+            # -------------------------
+            # PERSIST RESULTS
+            # -------------------------
             await post_anomaly_score(node_id, score)
             await post_fraud_explanation(node_id, reasons)
 
@@ -202,17 +206,18 @@ async def run_node_pipeline(nodes: List, event_queue: asyncio.Queue = None):
                     "source": "visual-analytics",
                 })
 
-            print(f" Visual ML completed for node {node_id}")
-            await emit_event(event_queue, "unsupervised_completed", {
-                "node_id": node_id,
-                "final_status": "ANOMALOUS" if is_anomalous else "NORMAL"
-            })
+        # -------------------------
+        # FINAL TERMINAL EVENT (ONCE)
+        # -------------------------
+        await emit_event(event_queue, "unsupervised_completed", {
+            "final_status": "DONE",
+            "nodes_processed": [n.nodeId for n in nodes]
+        })
 
-
-        except Exception as e:
-            print(f" Visual ML failed for node {node_id}: {str(e)}")
-            await emit_event(event_queue, "unsupervised_failed", {
-                "node_id": node_id,
-                "error": str(e)
-            })
-
+    except Exception as e:
+        # -------------------------
+        # ERROR TERMINAL EVENT
+        # -------------------------
+        await emit_event(event_queue, "error", {
+            "message": str(e)
+        })

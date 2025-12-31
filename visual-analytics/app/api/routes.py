@@ -57,42 +57,45 @@ def reanalyze_nodes(
         "nodes": [n.nodeId for n in request.nodes]
     }
 
-
-@router.get(
-    "/visual/stream/unsupervised",
-    
-)
-async def stream_unsupervised(
-    transactionId: str,
-    nodeId: int
-):
-    """
-    Streams EIF + SHAP analysis steps live to frontend.
-    """
+@router.get("/visual/stream/unsupervised")
+async def stream_unsupervised(transactionId: str, nodeId: int):
 
     event_queue: asyncio.Queue = asyncio.Queue()
 
     async def runner():
-        # Reuse the SAME pipeline
-        await run_node_pipeline(
-            nodes=[NodePayload(nodeId=nodeId, role="source")],
-            event_queue=event_queue
-        )
+        try:
+            # send first event immediately (keeps SSE alive)
+            await event_queue.put({
+                "stage": "stream_started",
+                "data": {"nodeId": nodeId, "transactionId": transactionId}
+            })
 
-    # Run ML asynchronously
+            await run_node_pipeline(
+                nodes=[NodePayload(nodeId=nodeId, role="source")],
+                event_queue=event_queue
+            )
+
+        except Exception as e:
+            await event_queue.put({
+                "stage": "error",
+                "data": {"message": str(e)}
+            })
+
     asyncio.create_task(runner())
 
     async def event_generator():
-        while True:
-            event = await event_queue.get()
-            yield {
-                "event": event["stage"],
-                "data": json.dumps(event["data"])
-            }
+        try:
+            while True:
+                event = await event_queue.get()
 
+                yield {
+                    "event": event["stage"],
+                    "data": json.dumps(event["data"])
+                }
 
-            # Stop stream when pipeline finishes
-            if event["stage"] == "unsupervised_completed":
-                break
+                if event["stage"] in ("unsupervised_completed", "error"):
+                    break
+        except asyncio.CancelledError:
+            print("⚠️ SSE client disconnected")
 
     return EventSourceResponse(event_generator())
