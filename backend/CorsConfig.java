@@ -7,19 +7,17 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 @Configuration
 public class CorsConfig {
+
     @Bean
     public WebMvcConfigurer corsConfigurer() {
         return new WebMvcConfigurer() {
             @Override
             public void addCorsMappings(CorsRegistry registry) {
-                // Allow Frontend (Port 3000) to talk to Backend (Port 8080)
                 registry.addMapping("/**")
-                        .allowedOrigins("http://localhost:3000",
-                        "http://13.61.154.100") 
-
+                        .allowedOriginPatterns("*") // ✅ allow all origins safely
                         .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                         .allowedHeaders("*")
-                        .allowCredentials(true);
+                        .allowCredentials(false); // ✅ IMPORTANT
             }
         };
     }
