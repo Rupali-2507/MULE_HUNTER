@@ -157,18 +157,22 @@ const es = new EventSource(
 
 // 1️⃣ Catch ALL unnamed events (most important)
 es.onmessage = (event) => {
-  console.log("🟡 SSE message:", event.data);
+  const data = JSON.parse(event.data);
 
-  try {
-    const parsed = JSON.parse(event.data);
-    setVaEvents(prev => [...prev, {
-      stage: "message",
-      data: parsed
-    }]);
-  } catch {
-    console.error("❌ Invalid SSE payload:", event.data);
+  let stage = "message";
+
+  if (data.total_nodes) stage = "population_loaded";
+  else if (data.score !== undefined) stage = "eif_result";
+  else if (data.final_status === "DONE") stage = "unsupervised_completed";
+
+  setVaEvents(prev => [...prev, { stage, data }]);
+
+  if (stage === "unsupervised_completed") {
+    setVaStatus("done");
+    es.close();
   }
 };
+
 
 // 2️⃣ Catch named events
 const handleEvent = (event: MessageEvent) => {
