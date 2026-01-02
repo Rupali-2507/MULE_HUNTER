@@ -2,8 +2,11 @@ package securityforensics;
 
 import securityforensics.blockchain.*;
 import securityforensics.ja3.BotDetectionService;
+import securityforensics.ja3.JA3RiskResult;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
+import jakarta.servlet.http.HttpServletRequest;
+
 import java.util.*;
 
 @RestController
@@ -15,7 +18,7 @@ public class SecurityController {
     private BotDetectionService botService;
     
     private static final Blockchain blockchain = new Blockchain();
-    
+    // Health
     @GetMapping("/status")
     public Map<String, String> getStatus() {
         Map<String, String> response = new HashMap<>();
@@ -24,12 +27,32 @@ public class SecurityController {
         response.put("port", "8080");
         return response;
     }
-    
-    @GetMapping("/bot-stats")
-    public Map<String, Object> getBotStats() {
-        return botService.getStats();
+    // JA3 RISK
+    @PostMapping("/ja3-risk")
+    public Map<String, Object> evaluateJA3(
+            @RequestBody FraudRequest requestBody,
+            HttpServletRequest request
+    ) {
+        // ✅ READ FROM HEADER, NOT ATTRIBUTE
+        String ja3 = request.getHeader("X-JA3-Fingerprint");
+
+        System.out.println("🛡️ SECURITY RECEIVED JA3 = " + ja3);
+
+        JA3RiskResult result = botService.evaluate(
+                ja3,
+                requestBody.accountId
+        );
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("ja3", ja3);
+        response.put("ja3Risk", result.ja3Risk);
+        response.put("velocity", result.velocity);
+        response.put("fanout", result.fanout);
+
+        return response;
     }
-    
+
+    //  BLOCKCHAIN
     @GetMapping("/blockchain")
     public Map<String, Object> getBlockchain() {
         Map<String, Object> response = new HashMap<>();
@@ -98,7 +121,7 @@ public class SecurityController {
         return response;
     }
 }
-
+// DTO
 class FraudRequest {
     public String txId;
     public String accountId;

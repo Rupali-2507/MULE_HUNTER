@@ -10,6 +10,6 @@ public class SecurityApplication {
         SpringApplication.run(SecurityApplication.class, args);
         System.out.println("SECURITY SERVICE STARTED");
         System.out.println("Port: 8080");
-        System.out.println("API: http://localhost:8080/pi/security");
+        System.out.println("API: http://localhost:8080/api/security");
     }
 }

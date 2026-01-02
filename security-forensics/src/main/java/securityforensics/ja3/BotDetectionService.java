@@ -2,35 +2,56 @@ package securityforensics.ja3;
 
 import org.springframework.stereotype.Service;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.Map;
-import java.util.HashMap;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 public class BotDetectionService {
-    private static final int THRESHOLD = 50;
-    private ConcurrentHashMap<String, Integer> hitCounter = new ConcurrentHashMap<>();
-    private ConcurrentHashMap<String, Long> firstSeen = new ConcurrentHashMap<>();
-    private ConcurrentHashMap<String, Boolean> blockedList = new ConcurrentHashMap<>();
-    
-    public boolean isBot(String ja3) {
-        firstSeen.putIfAbsent(ja3, System.currentTimeMillis());
-        int count = hitCounter.merge(ja3, 1, Integer::sum);
-        
-        if (count > THRESHOLD) {
-            blockedList.put(ja3, true);
-            System.out.println("🚨 BOT BLOCKED: " + ja3 + " (Hits: " + count + ")");
-            return true;
+
+    private static final int VELOCITY_THRESHOLD = 50;
+    private static final int FANOUT_THRESHOLD = 20;
+    private static final long WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
+    private final ConcurrentHashMap<String, AtomicInteger> hitCounter = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Set<String>> accountFanout = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Long> windowStart = new ConcurrentHashMap<>();
+
+    public JA3RiskResult evaluate(String ja3, String accountId) {
+
+        if (ja3 == null) {
+            return new JA3RiskResult(0.3, 0, 0);
         }
-        
-        return false;
-    }
-    
-    public Map<String, Object> getStats() {
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("uniqueFingerprints", hitCounter.size());
-        stats.put("blockedBots", blockedList.size());
-        stats.put("totalRequests", hitCounter.values().stream().mapToInt(Integer::intValue).sum());
-        stats.put("details", hitCounter);
-        return stats;
+
+        long now = System.currentTimeMillis();
+
+        windowStart.putIfAbsent(ja3, now);
+
+        // 🔁 RESET WINDOW
+        if (now - windowStart.get(ja3) > WINDOW_MS) {
+            hitCounter.remove(ja3);
+            accountFanout.remove(ja3);
+            windowStart.put(ja3, now);
+        }
+
+        hitCounter.putIfAbsent(ja3, new AtomicInteger(0));
+        accountFanout.putIfAbsent(ja3, ConcurrentHashMap.newKeySet());
+
+        int velocity = hitCounter.get(ja3).incrementAndGet();
+
+        if (accountId != null && !accountId.isBlank()) {
+            accountFanout.get(ja3).add(accountId);
+        }
+
+        int fanout = accountFanout.get(ja3).size();
+
+        double risk = 0.2;
+        if (velocity > VELOCITY_THRESHOLD) risk += 0.3;
+        if (fanout > FANOUT_THRESHOLD) risk += 0.4;
+
+        return new JA3RiskResult(
+                Math.min(risk, 1.0),
+                velocity,
+                fanout
+        );
     }
 }

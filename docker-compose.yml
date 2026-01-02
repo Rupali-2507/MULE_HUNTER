@@ -1,7 +1,6 @@
 version: "3.8"
 
 services:
-  # 1. AI INTELLIGENCE ENGINE
   ai-engine:
     container_name: mule-hunter-ai
     build:
@@ -11,8 +10,9 @@ services:
       - "8001:8000"
     volumes:
       - ./shared-data:/shared-data
+    networks:
+      - mulehunter-net
 
-  # 2. VISUAL ANALYTICS (Graph Service)
   visual-analytics:
     container_name: visual-analytics
     build:
@@ -23,33 +23,64 @@ services:
     env_file:
       - .env
     environment:
-      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-${VISUAL_INTERNAL_API_KEY}}
-      - BACKEND_BASE_URL=http://13.60.91.248:8082
-      - REQUEST_TIMEOUT=60
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dummy}
+      BACKEND_BASE_URL: http://backend:8080
+      REQUEST_TIMEOUT: 60
     volumes:
       - ./visual-analytics/visualization:/app/visualization
       - ./visual-analytics/scripts:/app/scripts
+    networks:
+      - mulehunter-net
 
-  # 3. CONTROL TOWER (Frontend)
+  security-forensics:
+    container_name: security-forensics
+    build:
+      context: ./security-forensics
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    networks:
+      - mulehunter-net
+
+  backend:
+    container_name: backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8082:8080"
+    environment:
+      security.service.url: http://security-forensics:8080
+      ai.service.url: http://ai-engine:8000
+      visual.service.url: http://visual-analytics:8000
+    depends_on:
+      - security-forensics
+      - ai-engine
+      - visual-analytics
+    networks:
+      - mulehunter-net
+
   control-tower:
     container_name: control-tower-app
-    image: control-tower:latest
     build:
       context: ./control-tower
       dockerfile: Dockerfile
       args:
-        - NEXT_PUBLIC_API_URL=http://13.60.91.248:8082
-        - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
-        - NEXTAUTH_URL=${NEXTAUTH_URL}
-        - JWT_SECRET=${JWT_SECRET}
-        - NEXT_PUBLIC_EMAILJS_SERVICE_ID=${NEXT_PUBLIC_EMAILJS_SERVICE_ID}
-        - NEXT_PUBLIC_EMAILJS_TEMPLATE_ID=${NEXT_PUBLIC_EMAILJS_TEMPLATE_ID}
-        - NEXT_PUBLIC_EMAILJS_PUBLIC_KEY=${NEXT_PUBLIC_EMAILJS_PUBLIC_KEY}
+        NEXT_PUBLIC_BACKEND_BASE_URL: http://localhost:8082
+        NEXTAUTH_SECRET: dummy
+        NEXTAUTH_URL: http://localhost:3000
+        JWT_SECRET: dummy
+        NEXT_PUBLIC_EMAILJS_SERVICE_ID: dummy
+        NEXT_PUBLIC_EMAILJS_TEMPLATE_ID: dummy
+        NEXT_PUBLIC_EMAILJS_PUBLIC_KEY: dummy
+        MONGODB_URI: mongodb://dummy:dummy@localhost:27017/dummy
     ports:
       - "3000:3000"
     environment:
-      - NODE_ENV=production
-      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
-      - NEXTAUTH_URL=${NEXTAUTH_URL}
-      - JWT_SECRET=${JWT_SECRET}
-      - MONGODB_URI=${MONGODB_URI}
+      NODE_ENV: production
+    networks:
+      - mulehunter-net
+
+networks:
+  mulehunter-net:
+    driver: bridge

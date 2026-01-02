@@ -19,41 +19,51 @@ public class TransactionService {
 
     private final TransactionRepository repository;
     private final NodeEnrichedService nodeEnrichedService;
-    
+
     private final WebClient aiWebClient;
     private final WebClient visualWebClient;
+    private final WebClient securityWebClient;
+
+   
+
 
     @Value("${visual.internal-api-key}")
     private String visualInternalApiKey;
 
-    //  DYNAMIC CONFIGURATION (Works for Docker AND Local)
     public TransactionService(
             TransactionRepository repository,
             NodeEnrichedService nodeEnrichedService,
-            
+
             @Value("${ai.service.url:http://56.228.10.113:8001}") String aiServiceUrl,
-            @Value("${visual.service.url:http://13.61.143.100:8000}") String visualServiceUrl
+            @Value("${visual.service.url:http://13.61.143.100:8000}") String visualServiceUrl,
+            @Value("${security.service.url:http://localhost:8080}") String securityServiceUrl
     ) {
         this.repository = repository;
         this.nodeEnrichedService = nodeEnrichedService;
-        
+
         System.out.println("🔌 CONNECTING AI TO: " + aiServiceUrl);
         System.out.println("🔌 CONNECTING VISUALS TO: " + visualServiceUrl);
+        System.out.println("🔐 CONNECTING SECURITY TO: " + securityServiceUrl);
 
-        // 1. Client for AI
         this.aiWebClient = WebClient.builder()
-                .baseUrl(aiServiceUrl) 
+                .baseUrl(aiServiceUrl)
                 .build();
 
-        // 2. Client for Visuals
         this.visualWebClient = WebClient.builder()
-                .baseUrl(visualServiceUrl) 
+                .baseUrl(visualServiceUrl)
+                .build();
+
+        this.securityWebClient = WebClient.builder()
+                .baseUrl(securityServiceUrl)
                 .build();
     }
 
-    public Mono<Transaction> createTransaction(TransactionRequest request) {
+    public Mono<Transaction> createTransaction(
+            TransactionRequest request,
+            String ja3
+    ) {
         Transaction tx = Transaction.from(request);
-        
+
         Long sourceNodeId;
         Long targetNodeId;
         try {
@@ -66,21 +76,43 @@ public class TransactionService {
         double amount = tx.getAmount().doubleValue();
 
         return repository.save(tx)
-                // PARALLEL EXECUTION
                 .flatMap(savedTx ->
                         Mono.when(
                                 nodeEnrichedService.handleOutgoing(sourceNodeId, amount),
                                 nodeEnrichedService.handleIncoming(targetNodeId, amount),
-                                triggerVisualMlPipeline(savedTx) 
+                                triggerVisualMlPipeline(savedTx)
                         ).thenReturn(savedTx)
                 )
-                // AI CALL
                 .flatMap(savedTx ->
                         callAiModel(sourceNodeId, targetNodeId, amount)
                                 .flatMap(aiResponse -> applyAiVerdict(savedTx, aiResponse))
                                 .defaultIfEmpty(savedTx)
-                );
-    }
+                )
+                .flatMap(savedTx ->
+                        callJa3Risk(savedTx, ja3)
+                                .doOnNext(ja3Result -> {
+                                        Object riskObj = ja3Result.get("ja3Risk");
+                                        Object velocityObj = ja3Result.get("velocity");
+                                        Object fanoutObj = ja3Result.get("fanout");
+
+                                        if (riskObj instanceof Number) {
+                                                double risk = ((Number) riskObj).doubleValue();
+                                                savedTx.setJa3Risk(risk);
+                                                savedTx.setJa3Detected(risk > 0.7); // signal only
+                                        }
+
+                                        if (velocityObj instanceof Number) {
+                                                savedTx.setJa3Velocity(((Number) velocityObj).intValue());
+                                        }
+
+                                        if (fanoutObj instanceof Number) {
+                                                savedTx.setJa3Fanout(((Number) fanoutObj).intValue());
+                                        }
+                                })
+                                .thenReturn(savedTx)
+                                
+                ).flatMap(repository::save);
+       }
 
     /* ------------------------- AI CALL ------------------------- */
     private Mono<JsonNode> callAiModel(Long source, Long target, double amount) {
@@ -96,33 +128,30 @@ public class TransactionService {
                 .bodyValue(payload)
                 .retrieve()
                 .bodyToMono(JsonNode.class)
-                .onErrorResume(e -> {
-                    System.err.println("❌ AI FAILED: " + e.getMessage());
-                    return Mono.empty();
-                });
+                .onErrorResume(e -> Mono.empty());
     }
 
     /* ------------------------- MAP RESULTS ------------------------- */
     private Mono<Transaction> applyAiVerdict(Transaction tx, JsonNode aiResponse) {
-        if (aiResponse == null || !aiResponse.has("risk_score")) return Mono.just(tx);
+        if (aiResponse == null || !aiResponse.has("risk_score")) {
+            return Mono.just(tx);
+        }
 
         double riskScore = aiResponse.get("risk_score").asDouble();
-        String verdict = aiResponse.get("verdict").asText();
 
         tx.setRiskScore(riskScore);
-        tx.setVerdict(verdict);
+        tx.setVerdict(aiResponse.path("verdict").asText());
         tx.setSuspectedFraud(riskScore > 0.5);
 
         tx.setOutDegree(aiResponse.path("out_degree").asInt(0));
         tx.setRiskRatio(aiResponse.path("risk_ratio").asDouble(0.0));
         tx.setPopulationSize(aiResponse.path("population_size").asText("Unknown"));
-        tx.setJa3Detected(aiResponse.path("ja3_detected").asBoolean(false));
         tx.setUnsupervisedModelName(aiResponse.path("model_version").asText("GraphSAGE"));
         tx.setUnsupervisedScore(aiResponse.path("unsupervised_score").asDouble(riskScore));
 
         List<String> accounts = new ArrayList<>();
-        if (aiResponse.has("linked_accounts") && aiResponse.get("linked_accounts").isArray()) {
-            aiResponse.get("linked_accounts").forEach(node -> accounts.add(node.asText()));
+        if (aiResponse.has("linked_accounts")) {
+            aiResponse.get("linked_accounts").forEach(n -> accounts.add(n.asText()));
         }
         tx.setLinkedAccounts(accounts);
 
@@ -132,7 +161,7 @@ public class TransactionService {
     /* ------------------------- VISUALS CALL ------------------------- */
     private Mono<Void> triggerVisualMlPipeline(Transaction tx) {
         Map<String, Object> payload = Map.of(
-                "trigger", "TRANSACTION_EVENT", 
+                "trigger", "TRANSACTION_EVENT",
                 "transactionId", tx.getId(),
                 "nodes", List.of(
                         Map.of("nodeId", Long.parseLong(tx.getSourceAccount()), "role", "SOURCE"),
@@ -146,9 +175,30 @@ public class TransactionService {
                 .bodyValue(payload)
                 .retrieve()
                 .bodyToMono(Void.class)
+                .onErrorResume(e -> Mono.empty());
+    }
+
+    /* ------------------------- JA3 CALL ------------------------- */
+    private Mono<Map> callJa3Risk(Transaction tx, String ja3) {
+
+        if (ja3 == null) return Mono.empty();
+         System.out.println("➡️ CALLING JA3 SERVICE with JA3=" + ja3);
+
+        Map<String, Object> payload = Map.of(
+                "accountId", tx.getSourceAccount(),
+                "txId", tx.getId()
+        );
+
+        return securityWebClient.post()
+                .uri("/api/security/ja3-risk")
+                .header("X-JA3-Fingerprint", ja3)
+                .bodyValue(payload)
+                .retrieve()
+                .bodyToMono(Map.class)
                 .onErrorResume(e -> {
-                    System.err.println("⚠️ Visual Trigger Warning: " + e.getMessage());
-                    return Mono.empty();
+                        System.err.println("❌ JA3 SERVICE CALL FAILED: " + e.getMessage());
+                        return Mono.empty();
                 });
+
     }
 }

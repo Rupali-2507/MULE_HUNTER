@@ -26,7 +26,7 @@ export default function FakeTransactionPage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const completedRef = useRef(false);
-const esRef = useRef<EventSource | null>(null);
+  const esRef = useRef<EventSource | null>(null);
 
   const [vaEvents, setVaEvents] = useState<any[]>([]);
   const [vaStatus, setVaStatus] =
@@ -82,6 +82,24 @@ const esRef = useRef<EventSource | null>(null);
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
+  function getSessionJA3(){
+    let ja3 = localStorage.getItem("JA3_FINGERPRINT");
+
+    if(!ja3){
+      const ja3Profiles =[
+        "JA3_CHROME_120",
+         "JA3_FIREFOX_115",
+      "JA3_ANDROID_UPI",
+      "JA3_PYTHON_REQUESTS"
+      ];
+      ja3 = ja3Profiles[Math.floor(Math.random()*ja3Profiles.length)];
+      localStorage.setItem("JA3_FINGERPRINT",ja3);
+
+     
+    }
+     return ja3;
+  }
+
   /* ================= TRANSACTION ================= */
   const sendTransaction = async () => {
     if (!form.source || !form.target || !form.amount) {
@@ -107,7 +125,7 @@ const esRef = useRef<EventSource | null>(null);
         `${BACKEND_BASE_URL}/api/transactions`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json","X-JA3-Fingerprint":getSessionJA3() },
           body: JSON.stringify(transactionData),
         }
       );
@@ -135,7 +153,10 @@ const esRef = useRef<EventSource | null>(null);
          },
          correlation: {
            ja3Detected: txData.ja3Detected || false,
-           linkedAccounts: txData.linkedAccounts || [] 
+           linkedAccounts: txData.linkedAccounts || [] ,
+           ja3Risk:txData.ja3Risk?? null,
+           ja3Velocity:txData.ja3Velocity?? null,
+           ja3Fanout:txData.ja3Fanout?? null,
          },
          unsupervised: {
            model: txData.unsupervisedModelName || "Isolation Forest",
@@ -399,30 +420,91 @@ es.onerror = () => {
 
               {/* TAB 2: JA3 */}
               {activeTab === "ja3" && (
-                <div className="p-4 bg-gray-900 rounded-xl border border-gray-800 animate-in fade-in">
-                   <h3 className="font-semibold mb-2 text-red-400">
-                      🔗 Device & Pattern Correlation
-                   </h3>
-                   {!result ? (
-                      <p className="text-gray-500 italic">No transaction data yet.</p>
-                   ) : !result.correlation.ja3Detected ? (
-                      <p className="text-sm text-gray-400">
-                        No shared device fingerprint or coordinated activity detected.
-                      </p>
-                   ) : (
-                      <>
-                        <p className="text-sm text-gray-300">
-                          Shared device fingerprint detected across accounts:
-                        </p>
-                        <ul className="list-disc list-inside text-sm text-red-300 mt-2">
-                          {result.correlation.linkedAccounts.map((a: string, i: number) => (
-                            <li key={i}>{a}</li>
-                          ))}
-                        </ul>
-                      </>
-                   )}
+                <div className="p-5 bg-gray-900 rounded-xl border border-gray-800 animate-in fade-in space-y-4">
+
+                  <h3 className="font-semibold text-red-400 flex items-center gap-2">
+                    🔗 Device Fingerprinting (JA3)
+                  </h3>
+
+                  {!result ? (
+                    <p className="text-gray-500 italic">No transaction analyzed yet.</p>
+                  ) : (
+                    <>
+                      {/* JA3 METRICS */}
+                      <div className="grid grid-cols-3 gap-3">
+                        
+                        <div className="bg-black/40 p-3 rounded-lg border border-gray-700">
+                          <div className="text-xs text-gray-400">JA3 Risk</div>
+                          <div className={`text-2xl font-bold ${
+                            result.correlation.ja3Risk > 0.7
+                              ? "text-red-500"
+                              : result.correlation.ja3Risk > 0.4
+                              ? "text-yellow-400"
+                              : "text-green-400"
+                          }`}>
+                            {result.correlation.ja3Risk !== null
+                              ? result.correlation.ja3Risk.toFixed(2)
+                              : "—"}
+                          </div>
+                        </div>
+
+                        <div className="bg-black/40 p-3 rounded-lg border border-gray-700">
+                          <div className="text-xs text-gray-400">Velocity</div>
+                          <div className="text-2xl font-bold text-white">
+                            {result.correlation.ja3Velocity ?? "—"}
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            requests / window
+                          </div>
+                        </div>
+
+                        <div className="bg-black/40 p-3 rounded-lg border border-gray-700">
+                          <div className="text-xs text-gray-400">Fan-out</div>
+                          <div className="text-2xl font-bold text-white">
+                            {result.correlation.ja3Fanout ?? "—"}
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            accounts
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* FLAG */}
+                      {result.correlation.ja3Detected ? (
+                        <div className="p-3 bg-red-500/10 border border-red-500/30 rounded text-sm text-red-400">
+                          ⚠️ High-risk device fingerprint detected  
+                          <br />
+                          Same TLS fingerprint reused across multiple accounts.
+                        </div>
+                      ) : (
+                        <div className="p-3 bg-green-500/10 border border-green-500/30 rounded text-sm text-green-400">
+                          ✓ No abnormal device reuse detected
+                        </div>
+                      )}
+
+                      {/* LINKED ACCOUNTS */}
+                      {result.correlation.linkedAccounts.length > 0 && (
+                        <div>
+                          <p className="text-xs text-gray-400 mb-2">
+                            Accounts sharing this device fingerprint:
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {result.correlation.linkedAccounts.map((acc: string, i: number) => (
+                              <span
+                                key={i}
+                                className="px-3 py-1 bg-red-500/20 text-red-300 rounded-full text-xs font-mono border border-red-500/30"
+                              >
+                                {acc}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               )}
+
 
               {/* TAB 3: SUPERVISED (YOUR PART) */}
               {activeTab === "supervised" && (

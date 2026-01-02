@@ -9,7 +9,7 @@ import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 import org.springframework.data.mongodb.core.mapping.FieldType;
 
-@Document(collection = "newtransactions") // ✅ Kept your original collection name
+@Document(collection = "newtransactions")
 public class Transaction {
 
     @Id
@@ -18,49 +18,43 @@ public class Transaction {
     private String sourceAccount;
     private String targetAccount;
 
-    @Field(targetType = FieldType.DECIMAL128) // ✅ Kept your original financial formatting
+    @Field(targetType = FieldType.DECIMAL128)
     private BigDecimal amount;
 
     private boolean suspectedFraud;
     private Double riskScore;
     private String verdict;
 
-    // =================================================================
-    // 🛡️ NEW FIELDS ADDED SAFELY (For Muskan's AI Cards)
-    // =================================================================
+    // ================= GRAPH / AI =================
     private int outDegree;
     private double riskRatio;
     private String populationSize;
-    
-    private boolean ja3Detected;
-    private List<String> linkedAccounts = new ArrayList<>(); // Init to avoid NullPointer
-    
+
+    private List<String> linkedAccounts = new ArrayList<>();
+
     private String unsupervisedModelName;
     private double unsupervisedScore;
-    // =================================================================
 
-    public Transaction() {
-    }
+    // ================= JA3 =================
+    private Boolean ja3Detected;
+    private Double ja3Risk;
+    private Integer ja3Velocity;
+    private Integer ja3Fanout;
 
-    // ✅ Kept your exact original logic to avoid breaking legacy flows
+    public Transaction() {}
+
     public static Transaction from(TransactionRequest request) {
         Transaction tx = new Transaction();
         tx.sourceAccount = request.getSourceAccount();
         tx.targetAccount = request.getTargetAccount();
-        
-        if (request.getAmount() == null) {
-            tx.amount = BigDecimal.ZERO;
-        } else {
-            tx.amount = request.getAmount();
-        }
-        
+        tx.amount = request.getAmount() == null ? BigDecimal.ZERO : request.getAmount();
         tx.suspectedFraud = false;
         tx.riskScore = 0.0;
         tx.verdict = "PENDING";
         return tx;
     }
 
-    // --- EXISTING GETTERS/SETTERS (Untouched) ---
+    // ================= GETTERS / SETTERS =================
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -83,8 +77,6 @@ public class Transaction {
     public String getVerdict() { return verdict; }
     public void setVerdict(String verdict) { this.verdict = verdict; }
 
-    // --- NEW GETTERS/SETTERS (Required to fix the "cannot find symbol" error) ---
-
     public int getOutDegree() { return outDegree; }
     public void setOutDegree(int outDegree) { this.outDegree = outDegree; }
 
@@ -94,15 +86,30 @@ public class Transaction {
     public String getPopulationSize() { return populationSize; }
     public void setPopulationSize(String populationSize) { this.populationSize = populationSize; }
 
-    public boolean isJa3Detected() { return ja3Detected; }
-    public void setJa3Detected(boolean ja3Detected) { this.ja3Detected = ja3Detected; }
-
     public List<String> getLinkedAccounts() { return linkedAccounts; }
     public void setLinkedAccounts(List<String> linkedAccounts) { this.linkedAccounts = linkedAccounts; }
 
     public String getUnsupervisedModelName() { return unsupervisedModelName; }
-    public void setUnsupervisedModelName(String unsupervisedModelName) { this.unsupervisedModelName = unsupervisedModelName; }
+    public void setUnsupervisedModelName(String unsupervisedModelName) {
+        this.unsupervisedModelName = unsupervisedModelName;
+    }
 
     public double getUnsupervisedScore() { return unsupervisedScore; }
-    public void setUnsupervisedScore(double unsupervisedScore) { this.unsupervisedScore = unsupervisedScore; }
+    public void setUnsupervisedScore(double unsupervisedScore) {
+        this.unsupervisedScore = unsupervisedScore;
+    }
+
+    // ================= JA3 GETTERS =================
+
+    public Boolean getJa3Detected() { return ja3Detected; }
+    public void setJa3Detected(Boolean ja3Detected) { this.ja3Detected = ja3Detected; }
+
+    public Double getJa3Risk() { return ja3Risk; }
+    public void setJa3Risk(Double ja3Risk) { this.ja3Risk = ja3Risk; }
+
+    public Integer getJa3Velocity() { return ja3Velocity; }
+    public void setJa3Velocity(Integer ja3Velocity) { this.ja3Velocity = ja3Velocity; }
+
+    public Integer getJa3Fanout() { return ja3Fanout; }
+    public void setJa3Fanout(Integer ja3Fanout) { this.ja3Fanout = ja3Fanout; }
 }
