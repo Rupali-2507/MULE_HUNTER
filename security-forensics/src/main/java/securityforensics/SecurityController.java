@@ -79,7 +79,7 @@ public class SecurityController {
             true
         );
         
-        blockchain.addLog(log);  // ✅ BATCHING - Queues until 10
+        blockchain.addLog(log);  
         
         Map<String, Object> response = new HashMap<>();
         response.put("status", "queued");
@@ -112,7 +112,7 @@ public class SecurityController {
             true
         );
         
-        blockchain.addLog(log);  // ✅ FIXED
+        blockchain.addLog(log);
         
         Map<String, String> response = new HashMap<>();
         response.put("status", "logged");
