@@ -111,7 +111,11 @@ public class TransactionService {
                                 })
                                 .thenReturn(savedTx)
                                 
-                ).flatMap(repository::save);
+                ).flatMap(finalTx -> {
+    combineRiskSignals(finalTx);
+    return repository.save(finalTx);
+});
+
        }
 
     /* ------------------------- AI CALL ------------------------- */
@@ -201,4 +205,35 @@ public class TransactionService {
                 });
 
     }
+
+    private void combineRiskSignals(Transaction tx) {
+
+    double wGnn = 0.40;
+    double wEif = 0.25;
+    double wBehavior = 0.20;
+    double wSecurity = 0.15;
+
+    double gnnScore = tx.getRiskScore();
+    double eifScore = tx.getUnsupervisedScore();
+    double ja3Score = tx.getJa3Risk() == null ? 0.0 : tx.getJa3Risk();
+
+    double behaviorScore = 0.0;
+
+    if (tx.getOutDegree() > 20) behaviorScore += 0.4;
+    if (tx.getRiskRatio() > 0.9) behaviorScore += 0.3;
+    if (tx.getLinkedAccounts() != null && tx.getLinkedAccounts().size() > 10)
+        behaviorScore += 0.3;
+
+    behaviorScore = Math.min(behaviorScore, 1.0);
+
+    double finalRisk =
+            (wGnn * gnnScore) +
+            (wEif * eifScore) +
+            (wBehavior * behaviorScore) +
+            (wSecurity * ja3Score);
+
+    tx.setRiskScore(finalRisk);
+    tx.setSuspectedFraud(finalRisk > 0.6);
+}
+
 }
