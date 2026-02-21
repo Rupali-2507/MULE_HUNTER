@@ -6,8 +6,16 @@
 
 *Stopping money mule networks before they cash out*
 
+---
+
+## 🌐 Live Deployment
+
+**Access the deployed application here:**
+
+**http://34.230.243.158:3000/**
 
 ---
+
 
 
 </div>
