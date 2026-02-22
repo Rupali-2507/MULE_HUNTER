@@ -16,6 +16,7 @@ public class WebConfig implements WebMvcConfigurer {
                     "http://13.48.249.157:3000",
                     "http://13.61.154.100",
                     "http://56.228.10.113:8001",
+                    "http://34.230.243.158:3000",
                     "https://mule-hunter-h58t.vercel.app"
                 )
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
