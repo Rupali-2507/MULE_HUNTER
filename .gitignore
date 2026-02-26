@@ -43,3 +43,4 @@ shared-data/*.json
 !shared-data/transactions.csv
 
 mule-va
+mule-ai
