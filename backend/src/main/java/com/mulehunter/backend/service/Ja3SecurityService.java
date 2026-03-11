@@ -6,6 +6,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
+import java.util.HashMap;
 import java.util.Map;
 
 @Service
@@ -14,10 +16,9 @@ public class Ja3SecurityService {
     private final WebClient securityWebClient;
 
     public Ja3SecurityService(
-            @Value("${security.service.url:http://mule-hunter-security-env.eba-twt3gcts.us-east-1.elasticbeanstalk.com}") 
+            @Value("${security.service.url:http://mule-hunter-security-env.eba-twt3gcts.us-east-1.elasticbeanstalk.com}")
             String securityServiceUrl
     ) {
-
         System.out.println("🔐 CONNECTING SECURITY TO: " + securityServiceUrl);
 
         this.securityWebClient = WebClient.builder()
@@ -27,7 +28,7 @@ public class Ja3SecurityService {
 
     public Mono<Map> callJa3Risk(Transaction tx, String ja3) {
 
-        if (ja3 == null) return Mono.empty();
+        if (ja3 == null) return Mono.just(new HashMap<>());
 
         System.out.println("➡️ CALLING JA3 SERVICE with JA3=" + ja3);
 
@@ -42,9 +43,10 @@ public class Ja3SecurityService {
                 .bodyValue(payload)
                 .retrieve()
                 .bodyToMono(Map.class)
+                .timeout(Duration.ofSeconds(3))          // ← 3 second hard timeout
                 .onErrorResume(e -> {
-                    System.err.println("❌ JA3 SERVICE CALL FAILED: " + e.getMessage());
-                    return Mono.empty();
+                    System.err.println("⚠️ JA3 SERVICE skipped: " + e.getMessage());
+                    return Mono.just(new HashMap<>());   // ← return empty map, don't fail
                 });
     }
 }
