@@ -1,6 +1,7 @@
 package com.mulehunter.backend.model;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -15,11 +16,16 @@ public class Transaction {
     @Id
     private String id;
 
+    private String transactionId;
+
     private String sourceAccount;
     private String targetAccount;
 
     @Field(targetType = FieldType.DECIMAL128)
     private BigDecimal amount;
+
+    private Instant timestamp;
+    private String status;
 
     private boolean suspectedFraud;
     private Double riskScore;
@@ -44,13 +50,21 @@ public class Transaction {
     public Transaction() {}
 
     public static Transaction from(TransactionRequest request) {
+
         Transaction tx = new Transaction();
+
+        tx.transactionId = request.getTransactionId();
         tx.sourceAccount = request.getSourceAccount();
         tx.targetAccount = request.getTargetAccount();
         tx.amount = request.getAmount() == null ? BigDecimal.ZERO : request.getAmount();
+
+        tx.timestamp = request.getTimestamp();
+        tx.status = "PENDING_RISK";
+
         tx.suspectedFraud = false;
         tx.riskScore = 0.0;
         tx.verdict = "PENDING";
+
         return tx;
     }
 
@@ -58,6 +72,9 @@ public class Transaction {
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
+
+    public String getTransactionId() { return transactionId; }
+    public void setTransactionId(String transactionId) { this.transactionId = transactionId; }
 
     public String getSourceAccount() { return sourceAccount; }
     public void setSourceAccount(String sourceAccount) { this.sourceAccount = sourceAccount; }
@@ -67,6 +84,12 @@ public class Transaction {
 
     public BigDecimal getAmount() { return amount; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
+
+    public Instant getTimestamp() { return timestamp; }
+    public void setTimestamp(Instant timestamp) { this.timestamp = timestamp; }
+
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
 
     public boolean isSuspectedFraud() { return suspectedFraud; }
     public void setSuspectedFraud(boolean suspectedFraud) { this.suspectedFraud = suspectedFraud; }
@@ -99,7 +122,7 @@ public class Transaction {
         this.unsupervisedScore = unsupervisedScore;
     }
 
-    // ================= JA3 GETTERS =================
+    // ================= JA3 =================
 
     public Boolean getJa3Detected() { return ja3Detected; }
     public void setJa3Detected(Boolean ja3Detected) { this.ja3Detected = ja3Detected; }
