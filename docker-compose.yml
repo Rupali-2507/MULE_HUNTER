@@ -50,6 +50,7 @@ services:
     ports:
       - "8082:8080"
     environment:
+      visual.internal-api-key: dummy
       security.service.url: http://security-forensics:8080
       ai.service.url: http://ai-engine:8000
       visual.service.url: http://visual-analytics:8000

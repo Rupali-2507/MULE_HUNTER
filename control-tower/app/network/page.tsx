@@ -19,6 +19,7 @@ export default function NetworkPage() {
       <div className="flex-1">
         <FraudGraph3D
           onNodeSelect={setSelectedNode}
+          selectedNode={selectedNode}
         />
       </div>
 

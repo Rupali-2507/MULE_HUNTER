@@ -5,7 +5,7 @@ import * as THREE from "three";
 
 
 
-interface GraphNode {
+export interface GraphNode {
   id: string | number;
   is_anomalous: boolean;
   anomalyScore?: number;  

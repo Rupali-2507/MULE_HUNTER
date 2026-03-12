@@ -114,10 +114,12 @@ export default function FakeTransactionPage() {
       completedRef.current = false;
 
     const transactionData = {
-      sourceAccount: form.source,
-      targetAccount: form.target,
-      amount: Number(form.amount),
-    };
+    transactionId: crypto.randomUUID(),
+    sourceAccount: form.source,
+    targetAccount: form.target,
+    amount: Number(form.amount),
+    timestamp: new Date().toISOString(),
+  };
 
     try {
       // ================= TRANSACTION (POST to Java -> Python) =================
@@ -176,27 +178,35 @@ export default function FakeTransactionPage() {
       setActiveTab("unsupervised"); 
 
       // ================= SSE =================
+            if (esRef.current) {
+              esRef.current.close();
+              esRef.current = null;
+            }
 const es = new EventSource(
+
   `${BACKEND_BASE_URL}/api/visual/stream/unsupervised` +
   `?transactionId=${transactionId}&nodeId=${form.source}`
 );
 esRef.current = es;
 // 1️⃣ Catch ALL unnamed events (most important)
 es.onmessage = (event) => {
-  const data = JSON.parse(event.data);
 
-  let stage = "message";
+  if (!event.data) return;
 
-  if (data.total_nodes) stage = "population_loaded";
-  else if (data.score !== undefined) stage = "eif_result";
-  else if (data.final_status === "DONE") stage = "unsupervised_completed";
+  try {
 
-  setVaEvents(prev => [...prev, { stage, data }]);
+    const data = JSON.parse(event.data);
 
-  if (stage === "unsupervised_completed") {
-    completedRef.current = true;   // ✅ PERSISTENT
-    setVaStatus("done");
-    es.close();
+    setVaEvents(prev => [
+      ...prev,
+      {
+        stage: "message",
+        data
+      }
+    ]);
+
+  } catch (err) {
+    console.error("Invalid SSE payload:", event.data);
   }
 };
 
@@ -204,20 +214,31 @@ es.onmessage = (event) => {
 
 // 2️⃣ Catch named events
 const handleEvent = (event: MessageEvent) => {
-  console.log(`🟢 SSE event [${event.type}]`, event.data);
+
+  if (!event.data) {
+    console.warn("⚠️ Empty SSE event:", event.type);
+    return;
+  }
 
   try {
     const parsed = JSON.parse(event.data);
-    setVaEvents(prev => [...prev, {
-      stage: event.type,
-      data: parsed
-    }]);
-  } catch {
+
+    setVaEvents(prev => [
+      ...prev,
+      {
+        stage: event.type,
+        data: parsed
+      }
+    ]);
+
+  } catch (err) {
     console.error("❌ Invalid SSE payload:", event.data);
   }
 };
 
+
 [
+  "stream_started",
   "population_loaded",
   "scoring_started",
   "eif_result",
@@ -225,20 +246,25 @@ const handleEvent = (event: MessageEvent) => {
   "shap_completed",
   "shap_skipped",
   "unsupervised_completed",
-  "unsupervised_failed",
+  "error"
 ].forEach(stage => {
   es.addEventListener(stage, handleEvent);
 });
 
 
 
+es.onerror = (err) => {
+  console.warn("🟡 SSE connection ended");
 
-// 3️⃣ DO NOT CLOSE ON ERROR (critical)
-es.onerror = () => {
-  // Browser fires this even on clean close — ignore completely
-  console.warn("🟡 SSE connection closed");
+  if (completedRef.current) return;
+
+  setVaStatus("failed");
+
+  if (esRef.current) {
+    esRef.current.close();
+    esRef.current = null;
+  }
 };
-
 
 
 

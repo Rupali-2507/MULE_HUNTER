@@ -1,0 +1,28 @@
+{
+  "model": "EIF",
+  "version": "v1.0",
+  "features": [
+    "account_age_days",
+    "balance_mean",
+    "balance_std",
+    "tx_count",
+    "tx_velocity_7d",
+    "fan_out_ratio",
+    "amount_entropy",
+    "risky_email",
+    "device_mobile",
+    "device_consistency",
+    "addr_entropy",
+    "d_gap_mean",
+    "card_network_risk",
+    "product_code_risk",
+    "international_flag",
+    "in_out_ratio"
+  ],
+  "metrics": {
+    "precision": 0.2909090909090909,
+    "recall": 0.23829787234042554,
+    "f1": 0.26198830409356727
+  },
+  "training_rows": 7701
+}

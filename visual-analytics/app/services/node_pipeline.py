@@ -16,10 +16,6 @@ from app.clients.backend_client import (
 # SSE EVENT EMITTER
 # =========================
 async def emit_event(queue, stage: str, data: Dict[str, Any]):
-    """
-    Push ML step updates to SSE queue.
-    Safe no-op if queue is None.
-    """
     if queue is not None:
         await queue.put({
             "stage": stage,
@@ -70,37 +66,44 @@ def build_non_anomalous_shap(node_id: int, score: float) -> dict:
 
 
 # =========================
-# MAIN PIPELINE (SSE SAFE)
+# MAIN PIPELINE
 # =========================
 async def run_node_pipeline(nodes: List, event_queue: asyncio.Queue = None):
     """
-    Runs Visual-Analytics ML pipeline with SSE-safe lifecycle.
+    Runs Visual Analytics ML pipeline with real-time SSE updates.
     Emits exactly ONE terminal event.
     """
 
     try:
+
         # -------------------------
         # STREAM START
         # -------------------------
         await emit_event(event_queue, "stream_started", {
-            "nodes": [n.nodeId for n in nodes]
+            "nodes": [n.nodeId for n in nodes],
+            "message": "Visual investigation started"
         })
+
 
         # -------------------------
         # FETCH POPULATION
         # -------------------------
         all_nodes = await fetch_all_enriched_nodes()
 
+        population_size = len(all_nodes)
+
         await emit_event(event_queue, "population_loaded", {
-            "total_nodes": len(all_nodes)
+            "population_size": population_size,
+            "message": f"Loaded {population_size} reference accounts"
         })
 
-        if not all_nodes or len(all_nodes) < 10:
+        if not all_nodes or population_size < 10:
             await emit_event(event_queue, "unsupervised_completed", {
                 "final_status": "SKIPPED",
                 "reason": "Insufficient reference population"
             })
             return
+
 
         normalized_population = [
             normalize_enriched_node(n)
@@ -108,10 +111,12 @@ async def run_node_pipeline(nodes: List, event_queue: asyncio.Queue = None):
             if n.get("nodeId") is not None
         ]
 
+
         # -------------------------
         # PROCESS EACH NODE
         # -------------------------
         for node in nodes:
+
             node_id = node.nodeId
             if node_id is None:
                 continue
@@ -120,6 +125,7 @@ async def run_node_pipeline(nodes: List, event_queue: asyncio.Queue = None):
                 (n for n in all_nodes if n.get("nodeId") == node_id),
                 None
             )
+
             if not raw_node:
                 continue
 
@@ -127,8 +133,9 @@ async def run_node_pipeline(nodes: List, event_queue: asyncio.Queue = None):
 
             await emit_event(event_queue, "scoring_started", {
                 "node_id": node_id,
-                "features_used": list(target_node.keys())
+                "message": "Isolation Forest anomaly scoring started"
             })
+
 
             reference_nodes = [
                 n for n in normalized_population
@@ -137,6 +144,7 @@ async def run_node_pipeline(nodes: List, event_queue: asyncio.Queue = None):
 
             if len(reference_nodes) < 10:
                 continue
+
 
             # -------------------------
             # ML SCORE
@@ -149,18 +157,22 @@ async def run_node_pipeline(nodes: List, event_queue: asyncio.Queue = None):
             await emit_event(event_queue, "eif_result", {
                 "node_id": node_id,
                 "score": round(float(score), 6),
-                "is_anomalous": is_anomalous
+                "is_anomalous": is_anomalous,
+                "message": f"Anomaly score = {round(float(score),4)}"
             })
+
 
             reasons = build_fraud_explanation(target_node, score)
 
+
             # -------------------------
-            # SHAP
+            # SHAP EXPLAINABILITY
             # -------------------------
             if is_anomalous:
+
                 await emit_event(event_queue, "shap_started", {
                     "node_id": node_id,
-                    "reference_samples": min(300, len(reference_nodes))
+                    "message": "Generating SHAP explanation"
                 })
 
                 shap_input = []
@@ -182,19 +194,25 @@ async def run_node_pipeline(nodes: List, event_queue: asyncio.Queue = None):
 
                 await emit_event(event_queue, "shap_completed", {
                     "node_id": node_id,
-                    "top_factors": shap_results[0]["top_factors"]
+                    "top_factors": shap_results[0]["top_factors"],
+                    "message": "Top fraud indicators identified"
                 })
+
             else:
+
                 shap_results = [build_non_anomalous_shap(node_id, score)]
+
                 await emit_event(event_queue, "shap_skipped", {
                     "node_id": node_id,
-                    "reason": "Node classified as normal"
+                    "message": "Node classified as normal behavior"
                 })
+
 
             # -------------------------
             # PERSIST RESULTS
             # -------------------------
             await post_anomaly_score(node_id, score)
+
             await post_fraud_explanation(node_id, reasons)
 
             for shap in shap_results:
@@ -206,15 +224,19 @@ async def run_node_pipeline(nodes: List, event_queue: asyncio.Queue = None):
                     "source": "visual-analytics",
                 })
 
+
         # -------------------------
-        # FINAL TERMINAL EVENT (ONCE)
+        # FINAL TERMINAL EVENT
         # -------------------------
         await emit_event(event_queue, "unsupervised_completed", {
             "final_status": "DONE",
-            "nodes_processed": [n.nodeId for n in nodes]
+            "nodes_processed": [n.nodeId for n in nodes],
+            "message": "Investigation completed successfully"
         })
 
+
     except Exception as e:
+
         # -------------------------
         # ERROR TERMINAL EVENT
         # -------------------------
