@@ -182,12 +182,20 @@ public class TransactionService {
                 graph.getConnectivityScore() * 0.6 +
                 graph.getTwoHopFraudDensity() * 0.4;
 
-        
 
-        double raw = 0.40 * gnnScore
+
+        // ja3 security signal: base risk + velocity boost + fanout boost
+        int ja3Velocity = tx.getJa3Velocity() == null ? 0 : tx.getJa3Velocity();
+        int ja3Fanout   = tx.getJa3Fanout()   == null ? 0 : tx.getJa3Fanout();
+        double ja3VelocityBoost = ja3Velocity > 50 ? 0.2 : ja3Velocity > 20 ? 0.1 : 0.0;
+        double ja3FanoutBoost   = ja3Fanout   > 20 ? 0.2 : ja3Fanout   > 10 ? 0.1 : 0.0;
+        double ja3Combined = Math.min(ja3Score + ja3VelocityBoost + ja3FanoutBoost, 1.0);
+
+        double raw = 0.35 * gnnScore
                 + 0.10 * eifScore
                 + 0.30 * Math.min(behaviorScore, 1.0)
-                + 0.20 * Math.min(graphScore,    1.0);
+                + 0.15 * Math.min(graphScore,    1.0)
+                + 0.10 * ja3Combined;
 
         // Round cleanly to 4 decimal places
         double finalRisk = Math.round(raw * 10_000.0) / 10_000.0;
