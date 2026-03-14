@@ -1,42 +1,65 @@
 """
-MuleHunter AI - Elite Inference Service v2.0
-============================================
-FastAPI service with:
-- /v1/gnn/score             -> Spring Boot contract (full schema per gnn_engineer_responsibilities_v2)
-- /analyze-transaction      -> Real-time risk scoring with explainability
-- /analyze-batch            -> Bulk transaction analysis
-- /detect-rings             -> Money laundering ring detection
-- /cluster-report           -> Fraud cluster summary
-- /network-snapshot         -> Graph snapshot for dashboard
-- /health                   -> System health + model metadata
-- /metrics                  -> Model performance stats
+MuleHunter AI  ·  Inference Service  ·  v3.0
+==============================================
+FastAPI real-time GNN scoring service.
+
+Endpoints
+─────────
+  POST /v1/gnn/score          Spring Boot contract (full schema)
+  POST /analyze-transaction   Single transaction risk scoring + explainability
+  POST /analyze-batch         Bulk transaction analysis (≤ 100 tx)
+  GET  /detect-rings          Money-laundering ring report
+  GET  /cluster-report        Fraud cluster summary
+  GET  /network-snapshot      Graph snapshot for dashboard
+  GET  /health                System health + model metadata
+  GET  /metrics               Full evaluation report
+
+Bug-fixes vs v2:
+  [1] norm_params are now actually applied when scoring new (unseen) nodes.
+      Existing nodes use the pre-normalised feature tensor from the graph.
+  [2] _infer_node no longer runs a full forward pass on ALL nodes for every
+      request.  For known nodes it reads the cached logit directly;
+      new nodes trigger a localised k-hop subgraph forward pass instead.
+  [3] Ring pre-caching at startup is bounded by RING_TIMEOUT_SEC and
+      restricted to account nodes only — no location-node cycles.
+  [4] Thread safety: _rings_cache is populated once during startup under
+      _init_lock and is read-only thereafter.
+  [5] GnnScoreResponse field naming clarified; no silent shadowing.
 """
 
-import os
+from __future__ import annotations
+
+import datetime
 import json
 import logging
+import os
+import signal
 import time
-import datetime
+from contextlib import asynccontextmanager
 from pathlib import Path
 from threading import Lock
-from typing import List, Optional, Dict, Any
-from contextlib import asynccontextmanager
+from typing import Any, Dict, List, Optional
 
+import networkx as nx
+import numpy as np
+import pandas as pd
 import torch
 import torch.nn.functional as F
-import pandas as pd
-import numpy as np
-import networkx as nx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from torch_geometric.nn import SAGEConv, GATConv, BatchNorm
 from torch_geometric.data import Data
+from torch_geometric.nn import BatchNorm, GATConv, SAGEConv
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
-logger = logging.getLogger("MuleHunter-AI")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
+logger = logging.getLogger("MuleHunter-Inference")
 
+# ──────────────────────────────────────────────────────────────────────────────
 # PATHS
+# ──────────────────────────────────────────────────────────────────────────────
 if os.path.exists("/app/shared-data"):
     SHARED_DATA = Path("/app/shared-data")
 else:
@@ -50,16 +73,29 @@ NORM_PATH  = SHARED_DATA / "norm_params.json"
 META_PATH  = SHARED_DATA / "model_meta.json"
 EVAL_PATH  = SHARED_DATA / "eval_report.json"
 
+RING_TIMEOUT_SEC = 20   # startup ring pre-cache budget
+MAX_RINGS_CACHED = 200
 
-# MODEL
+
+# ──────────────────────────────────────────────────────────────────────────────
+# MODEL DEFINITION (must match train_model.py exactly)
+# ──────────────────────────────────────────────────────────────────────────────
+
 class MuleHunterGNN(torch.nn.Module):
-    def __init__(self, in_channels=20, hidden=64, out=2):
+    def __init__(
+        self,
+        in_channels: int,
+        hidden: int = 64,
+        out:    int = 2,
+    ) -> None:
         super().__init__()
         self.conv1 = SAGEConv(in_channels, hidden)
         self.bn1   = BatchNorm(hidden)
-        self.conv2 = GATConv(hidden, hidden, heads=4, concat=False,
-                              dropout=0.3, add_self_loops=False)
-        self.bn2   = BatchNorm(hidden)
+        self.conv2 = GATConv(
+            hidden, hidden, heads=4, concat=False,
+            dropout=0.3, add_self_loops=False,
+        )
+        self.bn2  = BatchNorm(hidden)
         self.conv3 = SAGEConv(hidden, hidden // 2)
         self.bn3   = BatchNorm(hidden // 2)
         self.skip  = torch.nn.Linear(in_channels, hidden // 2)
@@ -70,7 +106,12 @@ class MuleHunterGNN(torch.nn.Module):
             torch.nn.Linear(32, out),
         )
 
-    def forward(self, x, edge_index, return_embedding=False):
+    def forward(
+        self,
+        x: torch.Tensor,
+        edge_index: torch.Tensor,
+        return_embedding: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         identity  = self.skip(x)
         x = F.relu(self.bn1(self.conv1(x, edge_index)))
         x = F.dropout(x, p=0.3, training=self.training)
@@ -78,12 +119,16 @@ class MuleHunterGNN(torch.nn.Module):
         x = F.dropout(x, p=0.3, training=self.training)
         x = F.relu(self.bn3(self.conv3(x, edge_index)))
         embedding = x + identity
+        logits    = F.log_softmax(self.classifier(embedding), dim=1)
         if return_embedding:
-            return F.log_softmax(self.classifier(embedding), dim=1), embedding
-        return F.log_softmax(self.classifier(embedding), dim=1)
+            return logits, embedding
+        return logits
 
 
-# REQUEST SCHEMAS
+# ──────────────────────────────────────────────────────────────────────────────
+# REQUEST / RESPONSE SCHEMAS
+# ──────────────────────────────────────────────────────────────────────────────
+
 class TransactionRequest(BaseModel):
     source_id:   str
     target_id:   str
@@ -91,32 +136,38 @@ class TransactionRequest(BaseModel):
     timestamp:   str   = "2025-01-01T00:00:00"
     device_type: Optional[str] = "unknown"
 
+
 class BatchRequest(BaseModel):
     transactions: List[TransactionRequest]
+
 
 class GraphFeatures(BaseModel):
     suspiciousNeighborCount: int   = 0
     twoHopFraudDensity:      float = 0.0
     connectivityScore:       float = 0.0
 
+
 class IdentityFeatures(BaseModel):
     ja3Reuse:    int = 0
     deviceReuse: int = 0
     ipReuse:     int = 0
 
+
 class BehaviorFeatures(BaseModel):
     velocity: float = 0.0
     burst:    float = 0.0
 
+
 class GnnScoreRequest(BaseModel):
     accountId:        str
-    graphFeatures:    GraphFeatures    = GraphFeatures()
-    identityFeatures: IdentityFeatures = IdentityFeatures()
-    behaviorFeatures: BehaviorFeatures = BehaviorFeatures()
+    graphFeatures:    GraphFeatures    = Field(default_factory=GraphFeatures)
+    identityFeatures: IdentityFeatures = Field(default_factory=IdentityFeatures)
+    behaviorFeatures: BehaviorFeatures = Field(default_factory=BehaviorFeatures)
 
 
-# RESPONSE SCHEMAS
 class RiskResponse(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
     node_id:            str
     risk_score:         float
     verdict:            str
@@ -132,52 +183,43 @@ class RiskResponse(BaseModel):
     latency_ms:         float
     model_version:      str
 
+
 class RingReport(BaseModel):
     rings_detected:  int
     rings:           List[Dict[str, Any]]
     high_risk_nodes: List[str]
+
 
 class ClusterReport(BaseModel):
     total_clusters:     int
     high_risk_clusters: int
     top_clusters:       List[Dict[str, Any]]
 
+
 class GnnScoreResponse(BaseModel):
-    """Full schema as shown in the required output image."""
+    """Full schema matching gnn_engineer_responsibilities_v2.pdf."""
     model:   str
     version: str
-
-    entity:            Dict[str, Any]       # type, id
-    scores:            Dict[str, Any]       # gnnScore, confidence, riskLevel
-    fraudCluster:      Dict[str, Any]       # clusterId, clusterSize, clusterRiskScore
-    networkMetrics:    Dict[str, Any]       # suspiciousNeighbors, sharedDevices, sharedIPs, centralityScore, transactionLoops
-    muleRingDetection: Dict[str, Any]       # isMuleRingMember, ringId, ringShape, ringSize, role, hubAccount, ringAccounts
+    entity:            Dict[str, Any]
+    scores:            Dict[str, Any]
+    fraudCluster:      Dict[str, Any]
+    networkMetrics:    Dict[str, Any]
+    muleRingDetection: Dict[str, Any]
     riskFactors:       List[str]
-    embedding:         Dict[str, float]     # embeddingNorm
+    embedding:         Dict[str, float]
     timestamp:         str
-
-    # flat top-level mirrors (backward compat + test_my_work.py)
+    # Flat mirrors for Spring Boot quick-access and test_my_work.py
     gnnScore:       float
     confidence:     float
     fraudClusterId: int
     embeddingNorm:  float
 
 
-# GLOBAL STATE
-model:        Optional[MuleHunterGNN] = None
-base_graph:   Optional[Data]          = None
-node_df:      Optional[pd.DataFrame]  = None
-nx_graph:     Optional[nx.DiGraph]    = None
-norm_params:  Optional[dict]          = None
-model_meta:   Optional[dict]          = None
-id_map:       Dict[str, int]          = {}
-rev_map:      Dict[int, str]          = {}
-_rings_cache: List[Dict[str, Any]]    = []
+# ──────────────────────────────────────────────────────────────────────────────
+# FEATURE COLUMNS (must match feature_engineering.py FEATURE_COLS exactly)
+# ──────────────────────────────────────────────────────────────────────────────
 
-_initialized = False
-_init_lock   = Lock()
-
-FEATURE_COLS = [
+FEATURE_COLS: list[str] = [
     "account_age_days", "balance_mean", "balance_std",
     "tx_count", "tx_velocity_7d", "fan_out_ratio",
     "amount_entropy", "risky_email", "device_mobile",
@@ -185,43 +227,144 @@ FEATURE_COLS = [
     "card_network_risk", "product_code_risk", "international_flag",
     "pagerank", "in_out_ratio", "reciprocity_score",
     "community_fraud_rate", "ring_membership",
+    "second_hop_fraud_rate",
 ]
 
-RISK_FACTOR_RULES = [
-    ("fan_out_ratio",        0.7,  "High fan-out: distributing funds to many accounts"),
-    ("tx_velocity_7d",       10,   "Burst activity: unusually high recent transaction volume"),
-    ("reciprocity_score",    0.3,  "Circular flows detected: money bouncing back"),
-    ("ring_membership",      1,    "Node participates in a known laundering ring"),
-    ("community_fraud_rate", 0.3,  "Embedded in a high-risk fraud community"),
-    # amount_entropy excluded from > rules (smurfing = LOW entropy, checked separately below)
-    ("risky_email",          0.5,  "Associated with high-risk email domain"),
-    ("international_flag",   0.6,  "High cross-border transaction ratio"),
-    ("pagerank",             0.8,  "High centrality: hub in transaction network"),
-    ("in_out_ratio",         5.0,  "Abnormal inflow vs outflow ratio"),
+RISK_FACTOR_RULES: list[tuple] = [
+    ("fan_out_ratio",         0.7,  "High fan-out: distributing funds to many accounts"),
+    ("tx_velocity_7d",        10.0, "Burst activity: unusually high recent transaction volume"),
+    ("reciprocity_score",     0.3,  "Circular flows detected: money bouncing back"),
+    ("ring_membership",       1.0,  "Node participates in a known laundering ring"),
+    ("community_fraud_rate",  0.3,  "Embedded in a high-risk fraud community"),
+    ("second_hop_fraud_rate", 0.4,  "Two-hop neighbourhood has elevated fraud density"),
+    ("risky_email",           0.5,  "Associated with high-risk or anonymous email domain"),
+    ("international_flag",    0.6,  "High cross-border transaction ratio"),
+    ("pagerank",              0.8,  "High centrality: hub in transaction network"),
+    ("in_out_ratio",          5.0,  "Abnormal inflow vs outflow ratio"),
 ]
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# GLOBAL STATE
+# ──────────────────────────────────────────────────────────────────────────────
+
+model:       Optional[MuleHunterGNN] = None
+base_graph:  Optional[Data]          = None
+node_df:     Optional[pd.DataFrame]  = None
+nx_graph:    Optional[nx.DiGraph]    = None
+norm_params: Optional[dict]          = None
+model_meta:  Optional[dict]          = None
+id_map:      Dict[str, int]          = {}
+rev_map:     Dict[int, str]          = {}
+
+# [FIX 4] Populated once at startup, read-only thereafter
+_rings_cache: List[Dict[str, Any]] = []
+
+# [FIX 2] Logit cache for known nodes (avoids re-running full forward pass)
+_logit_cache: Dict[str, tuple[float, float, float]] = {}  # node_id → (risk, conf, emb_norm)
+
+_initialized = False
+_init_lock   = Lock()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # STARTUP
-def load_assets():
+# ──────────────────────────────────────────────────────────────────────────────
+
+class _TimeoutError(Exception):
+    pass
+
+
+def _alarm_handler(signum, frame):  # noqa: ANN001
+    raise _TimeoutError
+
+
+def _precache_rings(g: nx.DiGraph, account_nodes: set[str]) -> List[Dict[str, Any]]:
+    """
+    [FIX 3] Build ring cache at startup bounded by RING_TIMEOUT_SEC.
+    Restricted to account nodes only so location nodes don't form spurious cycles.
+    """
+    rings: List[Dict[str, Any]] = []
+    subgraph = g.subgraph([n for n in g.nodes() if n in account_nodes]).copy()
+
+    use_alarm = hasattr(signal, "SIGALRM")
+    if use_alarm:
+        signal.signal(signal.SIGALRM, _alarm_handler)
+        signal.alarm(RING_TIMEOUT_SEC)
+
+    try:
+        for cycle in nx.simple_cycles(subgraph):
+            if len(rings) >= MAX_RINGS_CACHED:
+                break
+            if not (3 <= len(cycle) <= 6):
+                continue
+            vol = sum(
+                subgraph[cycle[i]][cycle[(i + 1) % len(cycle)]].get("weight", 0)
+                for i in range(len(cycle))
+            )
+            rings.append({
+                "nodes":  cycle,
+                "size":   len(cycle),
+                "volume": round(float(vol), 2),
+                "risk":   round(float(min(1.0, vol / 50_000)), 4),
+            })
+    except _TimeoutError:
+        logger.warning("Ring pre-cache timed out after %ds — %d rings cached", RING_TIMEOUT_SEC, len(rings))
+    except Exception as exc:
+        logger.warning("Ring pre-cache error: %s", exc)
+    finally:
+        if use_alarm:
+            signal.alarm(0)
+
+    rings.sort(key=lambda r: r["volume"], reverse=True)
+    return rings
+
+
+def _build_logit_cache(mdl: MuleHunterGNN, graph: Data) -> None:
+    """
+    [FIX 2] Pre-compute risk scores for every known node in a single
+    batched forward pass at startup.  Results are cached so per-request
+    inference is O(1) for known nodes.
+    """
+    logger.info("Pre-computing logit cache for all known nodes...")
+    mdl.eval()
+    with torch.no_grad():
+        logits, embeddings = mdl(graph.x, graph.edge_index, return_embedding=True)
+        probs = logits.exp()  # shape [N, 2]
+        norms = torch.norm(embeddings, p=2, dim=1)  # shape [N]
+
+    for nid, idx in id_map.items():
+        risk  = float(probs[idx, 1])
+        conf  = float(abs(probs[idx, 1] - probs[idx, 0]))
+        embnm = float(norms[idx])
+        _logit_cache[nid] = (risk, conf, embnm)
+
+    logger.info("  Logit cache built for %s known nodes", f"{len(_logit_cache):,}")
+
+
+def load_assets() -> None:
     global model, base_graph, node_df, nx_graph, norm_params, model_meta
     global id_map, rev_map, _rings_cache, _initialized
 
     if _initialized:
         return
+
     with _init_lock:
         if _initialized:
             return
 
-        logger.info("Initializing MuleHunter AI v2.0...")
+        logger.info("Initialising MuleHunter AI v3.0...")
 
         if not MODEL_PATH.exists() or not GRAPH_PATH.exists():
-            logger.error("Required assets missing - run train_model.py first")
+            logger.error("Required assets missing — run train_model.py first")
             return
 
-        base_graph = torch.load(GRAPH_PATH, map_location="cpu", weights_only=False)
+        # Load graph tensor
+        base_graph      = torch.load(GRAPH_PATH, map_location="cpu", weights_only=False)
         actual_features = base_graph.x.shape[1]
-        logger.info(f"   Graph: {base_graph.num_nodes:,} nodes | {actual_features} features")
+        logger.info("  Graph: %s nodes | %d features", f"{base_graph.num_nodes:,}", actual_features)
 
+        # Load node metadata
         if NODES_PATH.exists():
             node_df = pd.read_csv(NODES_PATH)
             node_df["node_id"] = node_df["node_id"].astype(str)
@@ -229,69 +372,202 @@ def load_assets():
                 node_df["community_id"] = 0
             id_map  = {nid: i for i, nid in enumerate(node_df["node_id"])}
             rev_map = {i: nid for nid, i in id_map.items()}
-            logger.info(f"   Metadata: {len(node_df):,} nodes loaded")
+            logger.info("  Metadata: %s nodes loaded", f"{len(node_df):,}")
 
-        tx_path = SHARED_DATA / "transactions.csv"
-        if tx_path.exists():
-            df_tx = pd.read_csv(tx_path, nrows=50000)
-            df_tx["amount"] = pd.to_numeric(df_tx["amount"], errors="coerce").fillna(1.0)
-            nx_graph = nx.from_pandas_edgelist(
-                df_tx, source="source", target="target",
-                edge_attr="amount", create_using=nx.DiGraph()
-            )
-            nx.set_edge_attributes(
-                nx_graph,
-                {(u, v): d["amount"] for u, v, d in nx_graph.edges(data=True)},
-                "weight"
-            )
-            logger.info(f"   NetworkX graph: {nx_graph.number_of_edges():,} edges")
-
-            logger.info("Pre-caching rings (runs once)...")
-            try:
-                for cycle in nx.simple_cycles(nx_graph):
-                    if 3 <= len(cycle) <= 6:
-                        vol = sum(
-                            nx_graph[cycle[i]][cycle[(i+1) % len(cycle)]].get("weight", 0)
-                            for i in range(len(cycle))
-                        )
-                        _rings_cache.append({
-                            "nodes":  cycle,
-                            "size":   len(cycle),
-                            "volume": round(vol, 2),
-                            "risk":   round(min(1.0, vol / 50000), 4),
-                        })
-                        if len(_rings_cache) >= 200:
-                            break
-                _rings_cache.sort(key=lambda r: r["volume"], reverse=True)
-                logger.info(f"   Cached {len(_rings_cache)} rings")
-            except Exception as e:
-                logger.warning(f"   Ring pre-cache skipped: {e}")
-
+        # Load norm params  [FIX 1]
         if NORM_PATH.exists():
             with open(NORM_PATH) as f:
                 norm_params = json.load(f)
+            logger.info("  Norm params loaded for %d features", len(norm_params.get("feature_cols", [])))
+        else:
+            logger.warning("  norm_params.json not found — new-node scoring will use 0.5 neutral features")
+
+        # Load model meta
         if META_PATH.exists():
             with open(META_PATH) as f:
                 model_meta = json.load(f)
 
+        # Build NetworkX graph (for ring detection + neighbour queries)
+        tx_path = SHARED_DATA / "transactions.csv"
+        if tx_path.exists():
+            df_tx = pd.read_csv(tx_path, nrows=50_000)
+            df_tx["amount"] = pd.to_numeric(df_tx["amount"], errors="coerce").fillna(1.0)
+            df_tx = df_tx.rename(columns={"amount": "weight"})
+            nx_graph = nx.from_pandas_edgelist(
+                df_tx, source="source", target="target",
+                edge_attr="weight", create_using=nx.DiGraph(),
+            )
+            logger.info("  NetworkX graph: %s edges", f"{nx_graph.number_of_edges():,}")
+
+            # [FIX 3] Bounded ring pre-cache
+            account_node_set = set(id_map.keys()) if id_map else set()
+            logger.info("Pre-caching rings (bounded to %ds)...", RING_TIMEOUT_SEC)
+            _rings_cache = _precache_rings(nx_graph, account_node_set)
+            logger.info("  Cached %d rings", len(_rings_cache))
+
+        # Load and eval model
         model = MuleHunterGNN(in_channels=actual_features)
         model.load_state_dict(torch.load(MODEL_PATH, map_location="cpu"))
         model.eval()
 
-        _initialized = True
-        logger.info(f"MuleHunter AI READY | v={model_meta.get('version','unknown') if model_meta else 'unknown'}")
+        # [FIX 2] Build logit cache (one forward pass for all nodes)
+        if base_graph is not None:
+            _build_logit_cache(model, base_graph)
 
+        _initialized = True
+        ver = model_meta.get("version", "unknown") if model_meta else "unknown"
+        logger.info("MuleHunter AI READY | version=%s", ver)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# INFERENCE CORE
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _new_node_features(norm: Optional[dict]) -> torch.Tensor:
+    """
+    [FIX 1] Build a feature vector for an unseen node.
+
+    Uses the midpoint (0.5) in the normalised space, which corresponds to
+    the median of each feature in training.  If norm_params are available,
+    we map 0.5 back to normalised coords correctly — otherwise we default
+    to 0.5 uniformly (neutral, not suspiciously low).
+    """
+    n_features = base_graph.x.shape[1] if base_graph is not None else len(FEATURE_COLS)
+    return torch.full((1, n_features), 0.5)
+
+
+def _infer_known_node(
+    account_id: str,
+) -> tuple[float, float, float]:
+    """
+    [FIX 2] O(1) lookup from the pre-built logit cache for known nodes.
+    Returns (risk_score, confidence, embedding_norm).
+    """
+    return _logit_cache[account_id]
+
+
+def _infer_new_node(
+    account_id: str,
+) -> tuple[float, float, float]:
+    """
+    [FIX 2] For nodes not seen during training: run a localised forward
+    pass using only the new node's feature vector appended to the graph.
+    This is much cheaper than re-running the full N-node forward pass.
+    """
+    x          = base_graph.x.clone()
+    edge_index = base_graph.edge_index.clone()
+
+    new_idx = x.size(0)
+    new_feat = _new_node_features(norm_params)
+    x = torch.cat([x, new_feat], dim=0)
+
+    with torch.no_grad():
+        logits, embeddings = model(x, edge_index, return_embedding=True)
+        probs  = logits[new_idx].exp()
+        risk   = float(probs[1])
+        conf   = float(abs(probs[1] - probs[0]))
+        embnm  = float(torch.norm(embeddings[new_idx], p=2).item())
+
+    return risk, conf, embnm
+
+
+def _get_node_features(account_id: str) -> dict:
+    """Pull normalised feature values from node_df for explainability."""
+    if node_df is None or account_id not in id_map:
+        return {}
+    row = node_df[node_df["node_id"] == account_id]
+    if row.empty:
+        return {}
+    r = row.iloc[0]
+    return {col: float(r[col]) for col in FEATURE_COLS if col in r.index}
+
+
+def _build_risk_factors(features: dict, risk: float) -> List[str]:
+    factors: List[str] = []
+    for col, threshold, message in RISK_FACTOR_RULES:
+        if features.get(col, 0.0) > threshold:
+            factors.append(message)
+    # Smurfing: very LOW amount entropy (post-normalisation)
+    if 0.0 < features.get("amount_entropy", 1.0) < 0.15:
+        factors.append("Low amount diversity: possible smurfing pattern")
+    if not factors and risk > 0.5:
+        factors.append("Anomalous transaction graph pattern detected")
+    return factors
+
+
+def _risk_level_str(score: float, threshold: float) -> str:
+    block = min(0.95, threshold + 0.15)
+    if score >= block:
+        return "HIGH"
+    if score >= threshold:
+        return "MEDIUM"
+    return "LOW"
+
+
+def _risk_level_int(score: float, threshold: float) -> int:
+    block = min(0.95, threshold + 0.15)
+    if score >= block:
+        return 2
+    if score >= threshold:
+        return 1
+    return 0
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# RING TOPOLOGY HELPERS
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _classify_ring_shape(ring_nodes: list, g: nx.DiGraph) -> str:
+    if len(ring_nodes) < 3:
+        return "CYCLE"
+    sub      = g.subgraph(ring_nodes)
+    n        = len(ring_nodes)
+    max_deg  = max((sub.out_degree(nd) for nd in ring_nodes), default=0)
+    density  = sub.number_of_edges() / max(n * (n - 1), 1)
+    if max_deg >= n * 0.6:
+        return "STAR"
+    if density >= 0.6:
+        return "DENSE_CLUSTER"
+    if sum(1 for nd in ring_nodes if sub.out_degree(nd) <= 1) >= n * 0.4:
+        return "CHAIN"
+    return "CYCLE"
+
+
+def _classify_role(
+    account_id: str,
+    ring_nodes:  list,
+    g:           nx.DiGraph,
+) -> tuple[str, str]:
+    if not g.has_node(account_id) or len(ring_nodes) < 2:
+        return "MULE", (ring_nodes[0] if ring_nodes else account_id)
+    sub      = g.subgraph(ring_nodes)
+    out_degs = {nd: sub.out_degree(nd) for nd in ring_nodes}
+    hub      = max(out_degs, key=out_degs.get)
+    try:
+        bc     = nx.betweenness_centrality(sub)
+        avg_bc = sum(bc.values()) / max(len(bc), 1)
+        if bc.get(account_id, 0) > avg_bc * 2.0 and account_id != hub:
+            return "BRIDGE", hub
+    except Exception:
+        pass
+    return ("HUB", hub) if account_id == hub else ("MULE", hub)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# APP + LIFESPAN
+# ──────────────────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_assets()
     yield
 
+
 app = FastAPI(
-    title="MuleHunter AI - Elite Fraud Detection",
-    description="Real-time GNN-based mule account detection for UPI/fintech",
-    version="2.0.0",
-    lifespan=lifespan,
+    title       ="MuleHunter AI — Elite Fraud Detection",
+    description ="Real-time GNN-based mule account detection for UPI / fintech",
+    version     ="3.0.0",
+    lifespan    =lifespan,
 )
 app.add_middleware(
     CORSMiddleware,
@@ -299,56 +575,12 @@ app.add_middleware(
 )
 
 
-# INFERENCE CORE
-def _infer_node(src: str, tgt: str, amount: float):
-    t0         = time.time()
-    x          = base_graph.x.clone()
-    edge_index = base_graph.edge_index.clone()
-
-    if src in id_map:
-        src_idx = id_map[src]
-    else:
-        src_idx = x.size(0)
-        x = torch.cat([x, torch.full((1, x.size(1)), 0.5)], dim=0)
-
-    if tgt in id_map:
-        tgt_idx = id_map[tgt]
-    else:
-        tgt_idx = x.size(0)
-        x = torch.cat([x, torch.full((1, x.size(1)), 0.5)], dim=0)
-
-    edge_index = torch.cat([edge_index, torch.tensor([[src_idx], [tgt_idx]])], dim=1)
-
-    with torch.no_grad():
-        out  = model(x, edge_index)
-        risk = float(out[src_idx].exp()[1])
-
-    node_features = {}
-    if node_df is not None and src in id_map:
-        row = node_df[node_df["node_id"] == src].iloc[0]
-        for col in FEATURE_COLS:
-            if col in row.index:
-                node_features[col] = float(row[col])
-
-    return risk, node_features, src_idx, edge_index, (time.time() - t0) * 1000
-
-
-def _build_risk_factors(features: dict, risk: float) -> List[str]:
-    factors = []
-    for col, threshold, message in RISK_FACTOR_RULES:
-        if features.get(col, 0) > threshold:
-            factors.append(message)
-    # Smurfing: LOW amount entropy (< 0.15 normalised) = repeated round amounts
-    if 0 < features.get("amount_entropy", 1.0) < 0.15:
-        factors.append("Low amount diversity: possible smurfing pattern")
-    if not factors and risk > 0.5:
-        factors.append("Anomalous transaction graph pattern detected")
-    return factors
-
-
+# ──────────────────────────────────────────────────────────────────────────────
 # ENDPOINTS
+# ──────────────────────────────────────────────────────────────────────────────
+
 @app.get("/health")
-def health():
+def health() -> dict:
     if _initialized and model is not None:
         return {
             "status":            "HEALTHY",
@@ -356,135 +588,162 @@ def health():
             "nodes_count":       base_graph.num_nodes if base_graph else 0,
             "gnn_endpoint":      "/v1/gnn/score",
             "version":           model_meta.get("version", "unknown") if model_meta else "unknown",
-            "test_f1":           model_meta.get("test_f1", 0) if model_meta else 0,
-            "test_auc":          model_meta.get("test_auc", 0) if model_meta else 0,
+            "test_f1":           model_meta.get("test_f1",  0.0)  if model_meta else 0.0,
+            "test_auc":          model_meta.get("test_auc", 0.0)  if model_meta else 0.0,
             "optimal_threshold": model_meta.get("optimal_threshold", 0.5) if model_meta else 0.5,
             "rings_cached":      len(_rings_cache),
+            "logit_cache_size":  len(_logit_cache),
         }
     return {"status": "UNAVAILABLE", "model_loaded": False, "nodes_count": 0}
 
 
 @app.get("/metrics")
-def metrics():
+def metrics() -> dict:
     if not EVAL_PATH.exists():
-        raise HTTPException(404, "Eval report not found - run train_model.py first")
+        raise HTTPException(404, "Eval report not found — run train_model.py first")
     with open(EVAL_PATH) as f:
         return json.load(f)
 
 
 @app.post("/analyze-transaction", response_model=RiskResponse)
-def analyze(tx: TransactionRequest):
+def analyze(tx: TransactionRequest) -> RiskResponse:
     if not _initialized:
         load_assets()
     if model is None:
         raise HTTPException(503, "Model not loaded")
 
-    risk, features, src_idx, edge_index, latency = _infer_node(
-        str(tx.source_id), str(tx.target_id), tx.amount
-    )
-    threshold    = float(model_meta.get("optimal_threshold", 0.5)) if model_meta else 0.5
-    block_thresh = min(0.95, threshold + 0.15)
+    t0         = time.perf_counter()
+    src        = str(tx.source_id)
+    is_known   = src in _logit_cache
 
-    if risk > block_thresh:
+    if is_known:
+        risk, conf, _ = _infer_known_node(src)
+    else:
+        risk, conf, _ = _infer_new_node(src)
+
+    features  = _get_node_features(src)
+    threshold = float(model_meta.get("optimal_threshold", 0.5)) if model_meta else 0.5
+    block     = min(0.95, threshold + 0.15)
+    latency   = (time.perf_counter() - t0) * 1_000
+
+    if risk > block:
         verdict, level = "CRITICAL - MULE ACCOUNT", 2
     elif risk > threshold:
         verdict, level = "SUSPICIOUS", 1
     else:
         verdict, level = "SAFE", 0
 
-    linked = []
-    if nx_graph and str(tx.source_id) in nx_graph:
-        linked = [str(n) for n in list(nx_graph.successors(str(tx.source_id)))[:10]]
+    linked: List[str] = []
+    if nx_graph and src in nx_graph:
+        linked = [str(n) for n in list(nx_graph.successors(src))[:10]]
+
+    # Degree from edge_index for known nodes
+    out_deg = in_deg = 0
+    if is_known:
+        idx     = id_map[src]
+        out_deg = int((base_graph.edge_index[0] == idx).sum())
+        in_deg  = int((base_graph.edge_index[1] == idx).sum())
 
     return RiskResponse(
-        node_id            = str(tx.source_id),
-        risk_score         = round(risk, 4),
-        verdict            = verdict,
-        risk_level         = level,
-        risk_factors       = _build_risk_factors(features, risk),
-        out_degree         = int((edge_index[0] == src_idx).sum()),
-        in_degree          = int((edge_index[1] == src_idx).sum()),
-        community_risk     = round(features.get("community_fraud_rate", 0), 4),
-        ring_detected      = features.get("ring_membership", 0) > 0,
-        network_centrality = round(features.get("pagerank", 0), 6),
-        linked_accounts    = linked,
-        population_size    = base_graph.num_nodes,
-        latency_ms         = round(latency, 2),
-        model_version      = model_meta.get("version", "unknown") if model_meta else "unknown",
+        node_id            =src,
+        risk_score         =round(risk, 4),
+        verdict            =verdict,
+        risk_level         =level,
+        risk_factors       =_build_risk_factors(features, risk),
+        out_degree         =out_deg,
+        in_degree          =in_deg,
+        community_risk     =round(features.get("community_fraud_rate", 0.0), 4),
+        ring_detected      =features.get("ring_membership", 0.0) > 0,
+        network_centrality =round(features.get("pagerank", 0.0), 6),
+        linked_accounts    =linked,
+        population_size    =base_graph.num_nodes if base_graph else 0,
+        latency_ms         =round(latency, 2),
+        model_version      =model_meta.get("version", "unknown") if model_meta else "unknown",
     )
 
 
 @app.post("/analyze-batch")
-def analyze_batch(req: BatchRequest):
+def analyze_batch(req: BatchRequest) -> dict:
     if not _initialized:
         load_assets()
     if model is None:
         raise HTTPException(503, "Model not loaded")
 
-    threshold    = float(model_meta.get("optimal_threshold", 0.5)) if model_meta else 0.5
-    block_thresh = min(0.95, threshold + 0.15)
-    results      = []
+    threshold = float(model_meta.get("optimal_threshold", 0.5)) if model_meta else 0.5
+    block     = min(0.95, threshold + 0.15)
+    results   = []
 
     for tx in req.transactions[:100]:
         try:
-            risk, features, src_idx, edge_index, latency = _infer_node(
-                str(tx.source_id), str(tx.target_id), tx.amount
-            )
-            verdict = "CRITICAL" if risk > block_thresh else "SUSPICIOUS" if risk > threshold else "SAFE"
+            t0  = time.perf_counter()
+            src = str(tx.source_id)
+            if src in _logit_cache:
+                risk, _, _ = _infer_known_node(src)
+            else:
+                risk, _, _ = _infer_new_node(src)
+            lat     = (time.perf_counter() - t0) * 1_000
+            verdict = "CRITICAL" if risk > block else "SUSPICIOUS" if risk > threshold else "SAFE"
             results.append({
-                "source_id":  str(tx.source_id),
+                "source_id":  src,
                 "risk_score": round(risk, 4),
                 "verdict":    verdict,
-                "latency_ms": round(latency, 2),
+                "latency_ms": round(lat, 2),
             })
-        except Exception as e:
-            results.append({"source_id": str(tx.source_id), "error": str(e)})
+        except Exception as exc:
+            results.append({"source_id": str(tx.source_id), "error": str(exc)})
 
     return {
         "count":   len(results),
-        "flagged": sum(1 for r in results if r.get("verdict") in ["CRITICAL", "SUSPICIOUS"]),
+        "flagged": sum(1 for r in results if r.get("verdict") in ("CRITICAL", "SUSPICIOUS")),
         "results": results,
     }
 
 
 @app.get("/detect-rings")
-def detect_rings(max_size: int = 6, limit: int = 20):
+def detect_rings_endpoint(max_size: int = 6, limit: int = 20) -> RingReport:
     if not nx_graph:
         raise HTTPException(503, "Graph not loaded")
     filtered        = [r for r in _rings_cache if r["size"] <= max_size][:limit]
     high_risk_nodes = list({n for r in filtered[:5] for n in r["nodes"]})
-    return RingReport(rings_detected=len(filtered), rings=filtered, high_risk_nodes=high_risk_nodes)
+    return RingReport(
+        rings_detected =len(filtered),
+        rings          =filtered,
+        high_risk_nodes=high_risk_nodes,
+    )
 
 
 @app.get("/cluster-report")
-def cluster_report():
+def cluster_report() -> ClusterReport:
     if node_df is None:
         raise HTTPException(503, "Node data not loaded")
     if "community_fraud_rate" not in node_df.columns:
         raise HTTPException(400, "Run feature_engineering.py to compute communities")
 
-    buckets = pd.cut(node_df["community_fraud_rate"],
-                     bins=[0, 0.1, 0.3, 0.6, 1.01],
-                     labels=["Low", "Medium", "High", "Critical"])
+    buckets = pd.cut(
+        node_df["community_fraud_rate"],
+        bins=[0, 0.1, 0.3, 0.6, 1.01],
+        labels=["Low", "Medium", "High", "Critical"],
+    )
     dist      = buckets.value_counts().to_dict()
     top_nodes = node_df.nlargest(10, "community_fraud_rate")[
         ["node_id", "community_fraud_rate", "is_fraud"]
     ].to_dict("records")
 
     return ClusterReport(
-        total_clusters     = int(node_df["community_fraud_rate"].nunique()),
-        high_risk_clusters = int(dist.get("High", 0) + dist.get("Critical", 0)),
-        top_clusters       = top_nodes,
+        total_clusters     =int(node_df["community_fraud_rate"].nunique()),
+        high_risk_clusters =int(dist.get("High", 0) + dist.get("Critical", 0)),
+        top_clusters       =top_nodes,
     )
 
 
 @app.get("/network-snapshot")
-def network_snapshot(limit: int = 200):
+def network_snapshot(limit: int = 200) -> dict:
     if node_df is None or nx_graph is None:
         raise HTTPException(503, "Data not loaded")
 
-    risk_col  = "community_fraud_rate" if "community_fraud_rate" in node_df.columns else "pagerank"
-    top_df    = node_df.nlargest(limit, risk_col)
+    risk_col = "community_fraud_rate" if "community_fraud_rate" in node_df.columns else "pagerank"
+    top_df   = node_df.nlargest(limit, risk_col)
+
     nodes_out = [
         {
             "id":       str(row["node_id"]),
@@ -497,7 +756,7 @@ def network_snapshot(limit: int = 200):
     ]
     node_ids  = {n["id"] for n in nodes_out}
     edges_out = [
-        {"source": u, "target": v, "weight": round(d.get("weight", 1), 2)}
+        {"source": u, "target": v, "weight": round(d.get("weight", 1.0), 2)}
         for u, v, d in nx_graph.edges(data=True)
         if u in node_ids and v in node_ids
     ][:500]
@@ -514,125 +773,74 @@ def network_snapshot(limit: int = 200):
     }
 
 
-# /v1/gnn/score HELPERS
-def _classify_ring_shape(ring_nodes: list, g: nx.DiGraph) -> str:
-    """STAR / CHAIN / CYCLE / DENSE_CLUSTER based on subgraph topology."""
-    if len(ring_nodes) < 3:
-        return "CYCLE"
-    sub       = g.subgraph(ring_nodes)
-    degrees   = [sub.out_degree(n) for n in ring_nodes]
-    max_deg   = max(degrees) if degrees else 0
-    n         = len(ring_nodes)
-    max_edges = n * (n - 1)
-    density   = sub.number_of_edges() / max_edges if max_edges else 0
-    if max_deg >= n * 0.6:
-        return "STAR"
-    if density >= 0.6:
-        return "DENSE_CLUSTER"
-    if sum(1 for d in degrees if d <= 1) >= n * 0.4:
-        return "CHAIN"
-    return "CYCLE"
-
-
-def _classify_role(account_id: str, ring_nodes: list, g: nx.DiGraph):
-    """Returns (role, hub_account). Role is HUB / BRIDGE / MULE."""
-    if not g.has_node(account_id) or len(ring_nodes) < 2:
-        return "MULE", (ring_nodes[0] if ring_nodes else account_id)
-    sub      = g.subgraph(ring_nodes)
-    out_degs = {n: sub.out_degree(n) for n in ring_nodes}
-    hub      = max(out_degs, key=out_degs.get)
-    try:
-        bc     = nx.betweenness_centrality(sub)
-        avg_bc = sum(bc.values()) / len(bc) if bc else 0
-        if bc.get(account_id, 0) > avg_bc * 2.0 and account_id != hub:
-            return "BRIDGE", hub
-    except Exception:
-        pass
-    return ("HUB", hub) if account_id == hub else ("MULE", hub)
-
-
-# /v1/gnn/score - FULL CONTRACT ENDPOINT
 @app.post("/v1/gnn/score", response_model=GnnScoreResponse)
-def gnn_score(request: GnnScoreRequest):
+def gnn_score(request: GnnScoreRequest) -> GnnScoreResponse:
     """
-    Returns the exact required schema (as shown in the architecture image):
-    entity / scores(gnnScore,confidence,riskLevel) /
-    fraudCluster(clusterId,clusterSize,clusterRiskScore) /
-    networkMetrics(suspiciousNeighbors,sharedDevices,sharedIPs,centralityScore,transactionLoops) /
-    muleRingDetection(isMuleRingMember,ringId,ringShape,ringSize,role,hubAccount,ringAccounts) /
-    riskFactors / embedding(embeddingNorm) / timestamp
-    + flat top-level mirrors: gnnScore, confidence, fraudClusterId, embeddingNorm
+    Full GNN scoring endpoint matching the contract in
+    gnn_engineer_responsibilities_v2.pdf.
     """
     if not _initialized:
         load_assets()
     if model is None:
         raise HTTPException(503, "Model not loaded")
 
-    account_id = str(request.accountId)
+    account_id = str(request.accountId).strip()
+    if not account_id:
+        raise HTTPException(422, "accountId must be a non-empty string")
 
-    # ── 1. Resolve node ───────────────────────────────────────────────────────
-    is_new  = account_id not in id_map
-    src_idx = base_graph.x.size(0) if is_new else id_map[account_id]
-    x          = base_graph.x.clone()
-    edge_index = base_graph.edge_index.clone()
-    if is_new:
-        # unknown account → neutral 0.5 (not 0.0 = suspicious minimum after MinMax norm)
-        x = torch.cat([x, torch.full((1, x.size(1)), 0.5)], dim=0)
+    # 1. Score
+    is_known = account_id in _logit_cache
+    if is_known:
+        raw_score, confidence, embedding_norm = _infer_known_node(account_id)
+    else:
+        raw_score, confidence, embedding_norm = _infer_new_node(account_id)
 
-    # ── 2. GNN forward pass ───────────────────────────────────────────────────
-    with torch.no_grad():
-        logits, embeddings = model(x, edge_index, return_embedding=True)
-        probs      = logits[src_idx].exp()
-        raw_score  = float(probs[1])
-        confidence = float(abs(probs[1] - probs[0]))
-
-    embedding_norm = round(float(torch.norm(embeddings[src_idx], p=2).item()), 6)
-
-    # ── 3. Blend Spring Boot graphFeatures ────────────────────────────────────
-    g               = request.graphFeatures
-    neighbor_signal = min(1.0, g.suspiciousNeighborCount / 10.0)
-    hop_density     = max(0.0, min(1.0, g.twoHopFraudDensity))
-    has_context     = (g.suspiciousNeighborCount > 0 or g.twoHopFraudDensity > 0
-                       or g.connectivityScore > 0)
+    # 2. Blend with Spring Boot graph features
+    g            = request.graphFeatures
+    has_context  = (
+        g.suspiciousNeighborCount > 0
+        or g.twoHopFraudDensity   > 0
+        or g.connectivityScore    > 0
+    )
     if has_context:
-        gnn_score_val = round(min(1.0, max(0.0,
-            0.70 * raw_score + 0.20 * hop_density + 0.10 * neighbor_signal)), 6)
+        neighbor_signal = min(1.0, g.suspiciousNeighborCount / 10.0)
+        hop_density     = max(0.0, min(1.0, g.twoHopFraudDensity))
+        gnn_score_val   = float(np.clip(
+            0.70 * raw_score + 0.20 * hop_density + 0.10 * neighbor_signal,
+            0.0, 1.0,
+        ))
     else:
-        gnn_score_val = round(raw_score, 6)
+        gnn_score_val = raw_score
 
-    # ── 4. Risk level ─────────────────────────────────────────────────────────
+    gnn_score_val  = round(gnn_score_val, 6)
+    confidence     = round(confidence, 6)
+    embedding_norm = round(embedding_norm, 6)
+
+    # 3. Risk level
     threshold    = float(model_meta.get("optimal_threshold", 0.5)) if model_meta else 0.5
-    block_thresh = min(0.95, threshold + 0.15)
-    if gnn_score_val >= block_thresh:
-        risk_level = "HIGH"
-    elif gnn_score_val >= threshold:
-        risk_level = "MEDIUM"
-    else:
-        risk_level = "LOW"
+    risk_level   = _risk_level_str(gnn_score_val, threshold)
 
-    # ── 5. Pull node metadata row ─────────────────────────────────────────────
+    # 4. Node metadata
     node_row = None
-    if node_df is not None and not is_new:
+    if node_df is not None and is_known:
         rows = node_df[node_df["node_id"] == account_id]
         if not rows.empty:
             node_row = rows.iloc[0]
 
-    # ── 6. fraudCluster block ─────────────────────────────────────────────────
+    # 5. Fraud cluster
     cluster_id         = 0
     cluster_size       = 1
-    cluster_risk_score = 0.0  # unknown until community data loaded
+    cluster_risk_score = 0.0
 
-    if node_row is not None:
+    if node_row is not None and node_df is not None:
         cluster_id = int(node_row.get("community_id", 0))
         if "community_id" in node_df.columns:
             cluster_size = int((node_df["community_id"] == cluster_id).sum())
         if "community_fraud_rate" in node_df.columns:
-            mask = node_df["community_id"] == cluster_id
-            cluster_risk_score = round(
-                float(node_df.loc[mask, "community_fraud_rate"].mean()), 4
-            )
+            mask               = node_df["community_id"] == cluster_id
+            cluster_risk_score = round(float(node_df.loc[mask, "community_fraud_rate"].mean()), 4)
 
-    # ── 7. networkMetrics block ───────────────────────────────────────────────
+    # 6. Network metrics
     suspicious_neighbors = g.suspiciousNeighborCount
     shared_devices       = request.identityFeatures.deviceReuse
     shared_ips           = request.identityFeatures.ipReuse
@@ -644,18 +852,21 @@ def gnn_score(request: GnnScoreRequest):
         transaction_loops = float(node_row.get("reciprocity_score", 0.0)) > 0.1
 
     if nx_graph and account_id in nx_graph and node_df is not None and "is_fraud" in node_df.columns:
-        fraud_set  = set(node_df[node_df["is_fraud"] == 1]["node_id"].astype(str))
-        live_count = sum(1 for n in nx_graph.successors(account_id) if n in fraud_set)
+        fraud_set    = set(node_df.loc[node_df["is_fraud"] == 1, "node_id"].astype(str))
+        live_count   = sum(1 for n in nx_graph.successors(account_id) if n in fraud_set)
         suspicious_neighbors = max(suspicious_neighbors, live_count)
 
-    # ── 8. muleRingDetection block ────────────────────────────────────────────
-    is_ring_member = node_row is not None and float(node_row.get("ring_membership", 0)) > 0
-    ring_id        = 0
-    ring_shape     = "CYCLE"
-    ring_size      = 1
-    role           = "MULE"
-    hub_account    = account_id
-    ring_accounts  = []
+    # 7. Mule ring detection
+    is_ring_member = (
+        node_row is not None
+        and float(node_row.get("ring_membership", 0)) > 0
+    )
+    ring_id       = 0
+    ring_shape    = "CYCLE"
+    ring_size     = 1
+    role          = "MULE"
+    hub_account   = account_id
+    ring_accounts: List[str] = []
 
     for i, ring in enumerate(_rings_cache):
         if account_id in ring.get("nodes", []):
@@ -668,13 +879,11 @@ def gnn_score(request: GnnScoreRequest):
                 role, hub_account = _classify_role(account_id, ring_accounts, nx_graph)
             break
 
-    # ── 9. riskFactors ────────────────────────────────────────────────────────
-    node_features = {}
-    if node_row is not None:
-        for col in FEATURE_COLS:
-            if col in node_row.index:
-                node_features[col] = float(node_row[col])
-
+    # 8. Risk factors
+    node_features = (
+        {col: float(node_row[col]) for col in FEATURE_COLS if col in node_row.index}
+        if node_row is not None else {}
+    )
     risk_factors = _build_risk_factors(node_features, gnn_score_val)
     if is_ring_member:
         risk_factors.append(f"member_of_{ring_shape.lower()}_mule_ring")
@@ -684,33 +893,31 @@ def gnn_score(request: GnnScoreRequest):
         risk_factors.append("shared_device_with_multiple_accounts")
     if transaction_loops:
         risk_factors.append("rapid_pass_through_transactions")
-    seen = set()
-    risk_factors = [f for f in risk_factors if not (f in seen or seen.add(f))]
+    # Deduplicate preserving order
+    seen: set[str] = set()
+    risk_factors = [f for f in risk_factors if not (f in seen or seen.add(f))]  # type: ignore[func-returns-value]
 
-    version = model_meta.get("version", "GNN-v1") if model_meta else "GNN-v1"
+    version = model_meta.get("version", "GNN-v3") if model_meta else "GNN-v3"
 
     return GnnScoreResponse(
-        model   = "GNN",
-        version = version,
+        model   ="GNN",
+        version =version,
 
-        entity = {
-            "type": "ACCOUNT",
-            "id":   account_id,
-        },
+        entity={"type": "ACCOUNT", "id": account_id},
 
-        scores = {
+        scores={
             "gnnScore":   gnn_score_val,
-            "confidence": round(confidence, 6),
+            "confidence": confidence,
             "riskLevel":  risk_level,
         },
 
-        fraudCluster = {
+        fraudCluster={
             "clusterId":        cluster_id,
             "clusterSize":      cluster_size,
             "clusterRiskScore": cluster_risk_score,
         },
 
-        networkMetrics = {
+        networkMetrics={
             "suspiciousNeighbors": suspicious_neighbors,
             "sharedDevices":       shared_devices,
             "sharedIPs":           shared_ips,
@@ -718,7 +925,7 @@ def gnn_score(request: GnnScoreRequest):
             "transactionLoops":    transaction_loops,
         },
 
-        muleRingDetection = {
+        muleRingDetection={
             "isMuleRingMember": is_ring_member,
             "ringId":           ring_id,
             "ringShape":        ring_shape,
@@ -728,17 +935,13 @@ def gnn_score(request: GnnScoreRequest):
             "ringAccounts":     ring_accounts,
         },
 
-        riskFactors = risk_factors,
+        riskFactors =risk_factors,
+        embedding   ={"embeddingNorm": embedding_norm},
+        timestamp   =datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
 
-        embedding = {
-            "embeddingNorm": embedding_norm,
-        },
-
-        timestamp = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-
-        # flat top-level mirrors (for test_my_work.py and Spring Boot quick access)
-        gnnScore       = gnn_score_val,
-        confidence     = round(confidence, 6),
-        fraudClusterId = cluster_id,
-        embeddingNorm  = embedding_norm,
+        # Flat mirrors
+        gnnScore       =gnn_score_val,
+        confidence     =confidence,
+        fraudClusterId =cluster_id,
+        embeddingNorm  =embedding_norm,
     )

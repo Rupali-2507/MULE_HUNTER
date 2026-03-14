@@ -1,783 +1,520 @@
-# MuleHunter AI 
-### Real-Time Mule Account & Collusive Fraud Detection for UPI
----
+# 🔍 MuleHunter AI — Mule Account & Collusive Fraud Detection
 
-## Table of Contents
-
-1. [What We Built](#what-we-built)
-2. [Project Structure](#project-structure)
-3. [Team & Responsibilities](#team--responsibilities)
-4. [Problem Statement](#problem-statement)
-5. [Our Solution](#our-solution)
-6. [Data Pipeline](#data-pipeline)
-7. [Feature Engineering](#feature-engineering)
-8. [GNN Architecture](#gnn-architecture)
-9. [API Reference](#api-reference)
-10. [Spring Boot Integration](#spring-boot-integration)
-11. [Dashboard](#dashboard)
-12. [Setup & Installation](#setup--installation)
-13. [Running the Pipeline](#running-the-pipeline)
-14. [Testing](#testing)
-15. [Model Performance](#model-performance)
-16. [Why Our Approach Wins](#why-our-approach-wins)
+> A real-time Graph Neural Network system that hunts down money mule accounts, money laundering rings, and collusive fraud clusters in UPI payment networks — before the money disappears.
 
 ---
 
-## What We Built
+## What Problem Does This Solve?
 
-MuleHunter AI is a **production-grade, real-time fraud detection system** that identifies mule accounts and collusive fraud rings in UPI and instant payment platforms. It combines:
+Imagine you send ₹10,000 to pay your rent. What you don't see is that your bank's payment rails are simultaneously being used by a network of fraudsters who have recruited hundreds of innocent-seeming accounts — *mule accounts* — to bounce stolen money around so fast it becomes untraceable.
 
-- A **Graph Neural Network (GNN)** trained on real financial fraud data (IEEE-CIS Kaggle dataset) to score every account's risk in real time
-- **Ring / cycle detection** using Johnson's algorithm to identify circular money laundering patterns (A → B → C → A)
-- **Community detection** to find collusive fraud clusters where accounts work together
-- A **FastAPI REST service** that scores any transaction in under 20ms
-- An **interactive D3.js dashboard** with a live force-directed fraud network graph, real-time alert feed, and transaction scanner
+These **mule accounts** are often real people who were tricked or coerced into letting fraudsters use their bank accounts. The money flows through them in a chain or ring pattern — deposited, moved, withdrawn — so quickly that by the time the fraud is detected, the money is gone.
+
+India's UPI system processes **500 crore+ transactions per month**. Even a 0.1% fraud rate means 50 lakh fraudulent transactions. This system is built to catch them.
+
+---
+
+## How It Works — The Big Picture
+
+Traditional fraud detection asks: *"Does this transaction look suspicious?"*
+
+MuleHunter asks: *"Does this **entire network of accounts and relationships** look suspicious?"*
+
+This is the difference between looking at a single tree and seeing the whole forest.
+
+```
+Raw Transactions (IEEE-CIS)
+         │
+         ▼
+  ┌─────────────────┐
+  │  Data Generator │  ← Builds account-level features (15 signals)
+  └────────┬────────┘
+           │
+           ▼
+  ┌──────────────────────┐
+  │  Feature Engineering │  ← Builds the transaction graph + graph features
+  └────────┬─────────────┘     PageRank · Ring Detection · Community Detection
+           │
+           ▼
+  ┌──────────────────┐
+  │   GNN Training   │  ← SAGE→GAT→SAGE architecture + Focal Loss
+  └────────┬─────────┘     Learns from BOTH node features AND graph structure
+           │
+           ▼
+  ┌──────────────────────┐
+  │  Inference Service   │  ← FastAPI · <50ms latency · Spring Boot compatible
+  └──────────────────────┘
+```
+
+---
+
+## Installation
+
+> ⚠️ **Do not run `pip install -r requirements.txt` directly.**
+> PyTorch Geometric's sparse backends must be installed in a specific order and fetched from a separate wheel server. Follow the four steps below exactly.
+
+### Prerequisites
+
+- **Python 3.10 or 3.11** — Python 3.12+ is not yet fully supported by all PyG sparse backends.
+- **pip ≥ 23** — run `pip install --upgrade pip` if unsure.
+
+If you need a clean environment:
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate        # Linux / macOS
+.venv\Scripts\activate           # Windows PowerShell
+```
+
+---
+
+### Step 1 — Install PyTorch
+
+**CPU build** (works on every machine, no GPU required):
+
+```bash
+pip install torch==2.3.1
+```
+
+**GPU build** (faster training — only if you have an NVIDIA GPU):
+
+```bash
+# Replace cu121 with your actual CUDA version (run: nvcc --version)
+pip install torch==2.3.1 --index-url https://download.pytorch.org/whl/cu121
+```
+
+Verify:
+
+```bash
+python -c "import torch; print(torch.__version__)"   # → 2.3.1
+```
+
+---
+
+### Step 2 — Install PyTorch Geometric + sparse backends
+
+`torch-scatter` and `torch-sparse` are compiled against a specific PyTorch version and **must** be fetched from PyG's own wheel server. The URL encodes both the torch version and the compute platform:
+
+**CPU:**
+
+```bash
+pip install torch-geometric==2.5.3
+
+pip install torch-scatter torch-sparse \
+    -f https://data.pyg.org/whl/torch-2.3.1+cpu.html
+```
+
+**GPU (CUDA 12.1):**
+
+```bash
+pip install torch-geometric==2.5.3
+
+pip install torch-scatter torch-sparse \
+    -f https://data.pyg.org/whl/torch-2.3.1+cu121.html
+```
+
+> If you see `ERROR: No matching distribution found`, double-check that the torch version string in the URL (`torch-2.3.1+cpu`) exactly matches what `torch.__version__` prints.
+
+---
+
+### Step 3 — Install remaining dependencies
+
+```bash
+pip install \
+    "fastapi==0.115.0" \
+    "uvicorn[standard]==0.30.6" \
+    "pydantic==2.8.2" \
+    "pandas==2.2.2" \
+    "numpy==1.26.4" \
+    "scikit-learn==1.5.1" \
+    "networkx==3.3" \
+    "httpx"
+```
+
+---
+
+### Step 4 — Verify everything is working
+
+```bash
+python - <<'EOF'
+import torch, torch_geometric
+import fastapi, uvicorn, pydantic
+import pandas, numpy, sklearn, networkx, httpx
+
+print(f"torch           {torch.__version__}")
+print(f"torch-geometric {torch_geometric.__version__}")
+print(f"fastapi         {fastapi.__version__}")
+print(f"pandas          {pandas.__version__}")
+print(f"numpy           {numpy.__version__}")
+print("All dependencies OK ✅")
+EOF
+```
+
+Expected output:
+
+```
+torch           2.3.1
+torch-geometric 2.5.3
+fastapi         0.115.0
+pandas          2.2.2
+numpy           1.26.4
+All dependencies OK ✅
+```
+
+---
+
+### Dependency Reference
+
+| Package | Pinned Version | Role |
+|---------|---------------|------|
+| `torch` | 2.3.1 | Deep learning engine for GNN training and inference |
+| `torch-geometric` | 2.5.3 | Graph Neural Network layers — `SAGEConv`, `GATConv`, `BatchNorm`, `Data` |
+| `torch-scatter` | wheel-matched | Sparse scatter operations required by PyG message passing |
+| `torch-sparse` | wheel-matched | Sparse matrix multiplication required by PyG aggregation |
+| `fastapi` | 0.115.0 | REST API framework for the inference service |
+| `uvicorn[standard]` | 0.30.6 | ASGI server; `[standard]` adds WebSocket support and performance extras |
+| `pydantic` | 2.8.2 | Request/response schema validation and JSON serialisation |
+| `pandas` | 2.2.2 | Tabular data loading and feature engineering |
+| `numpy` | 1.26.4 | Numerical operations and MinMax normalisation |
+| `scikit-learn` | 1.5.1 | F1 / AUC metrics and precision-recall curve for threshold tuning |
+| `networkx` | 3.3 | Graph construction, PageRank, community detection, cycle detection |
+| `httpx` | latest | HTTP client used by the test suite to call the running API |
+
+---
+
+### Common Installation Errors
+
+**`RuntimeError: Tried to instantiate 'SAGEConv' but it is not present in the PyG registry`**
+→ `torch-scatter` / `torch-sparse` were not installed. Re-run Step 2.
+
+**`ERROR: No matching distribution found for torch-scatter`**
+→ The torch version in the `-f` URL doesn't match your installed torch. Check `python -c "import torch; print(torch.__version__)"` and update the URL accordingly.
+
+**`ImportError: numpy.core.multiarray failed to import`**
+→ numpy 2.x was accidentally installed. Fix with: `pip install "numpy==1.26.4" --force-reinstall`
+
+**`ModuleNotFoundError: No module named 'torch_sparse'`**
+→ The sparse backend wheel was not found for your platform. Try installing with `--no-cache-dir` to force a fresh download: `pip install torch-sparse -f https://data.pyg.org/whl/torch-2.3.1+cpu.html --no-cache-dir`
+
+**Training is very slow even with a GPU**
+→ Verify PyTorch sees the GPU: `python -c "import torch; print(torch.cuda.is_available())"`. If `False`, reinstall torch with the correct CUDA index URL from Step 1.
+
+---
+
+## Dataset
+
+Download the IEEE-CIS Fraud Detection dataset from Kaggle:
+
+```
+https://www.kaggle.com/c/ieee-fraud-detection/data
+```
+
+Place both files in the `shared-data/` directory:
+
+```
+shared-data/
+├── train_transaction.csv   ← required  (~590 MB)
+└── train_identity.csv      ← optional but strongly recommended (~27 MB, adds device fingerprint features)
+```
+
+The `shared-data/` directory is created automatically on first run. If running inside Docker, map it as a volume:
+
+```bash
+docker run -v $(pwd)/shared-data:/app/shared-data mulehunter:latest
+```
+
+---
+
+## Running the Pipeline
+
+Run each step in order. Each produces files that the next step reads.
+
+```bash
+# 1. Ingest IEEE-CIS, engineer 15 per-account features
+python data_generator.py
+
+# 2. Build transaction graph, detect rings and communities, create PyG tensors
+#    (ring detection is time-bounded to 30s — it will not hang)
+python feature_engineering.py
+
+# 3. Train the GNN — up to 500 epochs with early stopping at patience=40
+#    Best checkpoint is saved automatically to shared-data/mule_model.pth
+python train_model.py
+
+# 4. Start the real-time inference API on port 8001
+uvicorn inference_service:app --port 8001 --reload
+
+# 5. Run the full integration test suite (API must already be running)
+python test_my_work.py
+
+# Run tests against a non-default URL or data path:
+python test_my_work.py --base-url http://staging:8001 --shared-data /data/mule
+```
+
+> **Tip:** Steps 1–3 are one-time training setup. After training completes, only Step 4 needs to run in production.
 
 ---
 
 ## Project Structure
 
 ```
-MULE_HUNTER/                          ← Project root (shared by all 5 team members)
+MULE_HUNTER/
+├── ai-engine/
+│   ├── data_generator.py       ← Step 1: Ingest IEEE-CIS, engineer 15 node features
+│   ├── feature_engineering.py  ← Step 2: Build graph, ring/community/graph features
+│   ├── train_model.py          ← Step 3: Train SAGE→GAT→SAGE GNN with Focal Loss
+│   ├── inference_service.py    ← Step 4: FastAPI service for real-time scoring
+│   ├── test_my_work.py         ← Full integration test suite (pass/fail + CLI args)
+│   ├── requirements.txt        ← Pinned versions (read installation notes above)
+│   └── README.md               ← You are here
 │
-├── ai-engine/                        ← AI Engineer's domain (this README)
-│   ├── venv/                         ← Python virtual environment (DO NOT COMMIT)
-│   ├── data_generator.py             ← Step 1: Raw Kaggle data → nodes.csv + transactions.csv
-│   ├── feature_engineering.py        ← Step 2: Graph analytics → processed_graph.pt
-│   ├── train_model.py                ← Step 3: GNN training → mule_model.pth
-│   ├── inference_service.py          ← Step 4: FastAPI inference server (port 8001)
-│   ├── test_my_work.py               ← Step 5: Full solo test suite (run before connecting to Spring Boot)
-│   ├── export_schema.py              ← Generates OpenAPI JSON contract for frontend team
-│   ├── requirements.txt              ← Python dependencies
-│   └── Dockerfile                    ← Container definition
-│
-├── shared-data/                      ← Data files (DO NOT COMMIT CSVs)
-│   ├── train_transaction.csv         ← Kaggle input (download manually)
-│   ├── train_identity.csv            ← Kaggle input (download manually)
-│   ├── nodes.csv                     ← Generated by data_generator.py
-│   ├── transactions.csv              ← Generated by data_generator.py
-│   ├── processed_graph.pt            ← Generated by feature_engineering.py
-│   ├── norm_params.json              ← Normalization params for inference
-│   ├── mule_model.pth                ← Trained GNN weights (generated by train_model.py)
-│   ├── model_meta.json               ← Model version + performance stats
-│   └── eval_report.json             ← Full evaluation metrics (F1, AUC, Precision, Recall)
-│
-└── contracts/
-    └── ai-service-api.json           ← Auto-generated OpenAPI spec for frontend integration
+└── shared-data/                ← All generated artifacts live here
+    ├── train_transaction.csv   ← IEEE-CIS input (you provide this)
+    ├── train_identity.csv      ← IEEE-CIS input (optional, you provide this)
+    ├── nodes.csv               ← Engineered per-account feature table
+    ├── transactions.csv        ← Directed edge list for graph construction
+    ├── processed_graph.pt      ← PyTorch Geometric Data object (graph + split masks)
+    ├── norm_params.json        ← MinMax normalisation params (used at inference time)
+    ├── mule_model.pth          ← Trained GNN weights (best validation checkpoint)
+    ├── model_meta.json         ← Version, in_channels, F1/AUC, optimal threshold
+    └── eval_report.json        ← Full Precision/Recall/F1/AUC/confusion matrix
 ```
 
 ---
 
-## Team & Responsibilities
+## The Science — Explained Simply
 
-| Domain | Responsibility |
-|--------|---------------|
-| **AI Engineer** | GNN model, data pipeline, feature engineering, FastAPI inference service |
-| **Frontend** | Dashboard UI, D3 visualizations, connects to AI API on `localhost:8001` |
-| **Backend** | Application server, database, auth, orchestration |
-| **Data / DevOps** | Data ingestion, Docker deployment, CI/CD |
-| **Domain Expert** | UPI fraud typologies, KYC/AML compliance, evaluation criteria |
+### Why a Graph Neural Network?
 
-> **AI API base URL used by the frontend:** `http://localhost:8001`
+A bank account on its own might look completely normal — low transaction amounts, regular timing, legitimate email address. But connect it to the graph of *who it transacts with* and suddenly you see it's sitting at the centre of a 7-account ring where money flows in a perfect circle.
 
----
+That circular pattern is called **layering** in Anti-Money Laundering (AML) terminology — one of the three phases of money laundering (Placement → Layering → Integration).
 
-## Problem Statement
+A **Graph Neural Network (GNN)** is a type of AI that learns from both the features of individual nodes (accounts) AND the structure of the connections between them. It propagates information across the graph — "guilt by association" — so that an account connected to many known fraudsters inherits some of that suspicion, even if its own transactions look clean.
 
-UPI has transformed digital payments in India but its real-time, open nature makes it highly vulnerable to:
+### The Architecture: SAGE → GAT → SAGE
 
-- **Mule accounts** — compromised or recruited accounts used to receive and forward illicit funds
-- **Collusive fraud rings** — networks of accounts that coordinate to launder money through layering (A→B→C→A cycles)
-- **Smurfing** — splitting large amounts into many small transactions to evade detection
+Our GNN has three layers, each doing a different job:
 
-Recent RBI reports uncovered ~8.5 lakh mule accounts across 700+ bank branches. Traditional rule-based systems fail because fraudsters adapt quickly. We need graph-aware ML that understands the *network context* of every account, not just its individual transactions.
+| Layer | Type | What It Does |
+|-------|------|-------------|
+| 1 | **GraphSAGE** | Aggregates information from the neighbourhood broadly — "who are your friends?" |
+| 2 | **GAT** (Graph Attention) | Learns *which* neighbours matter most using attention weights — "which friends are suspicious?" |
+| 3 | **GraphSAGE** | Final aggregation before classification — synthesises everything |
+
+A **residual (skip) connection** carries the original input features directly to the output layer, preventing information loss in deep networks (similar to ResNet in image recognition).
 
 ---
 
-## Our Solution
+## The 21 Features
 
-### Why Graph Neural Networks?
+Each account in our graph is described by 21 numerical features, divided into two groups:
 
-A transaction graph captures what rule-based systems cannot: **who is connected to whom, and how**. A mule account might have perfectly normal individual transactions but sits at the centre of a suspicious network — receiving from many sources and distributing to many targets in tight cycles.
+### Group 1: Account-Level Features (computed from raw transactions)
 
-GNNs learn node representations by aggregating information from their neighborhood. This means every account's risk score is informed by its neighbors' behavior — if your neighbors are fraudulent, your risk goes up even if your own transactions look clean.
+| # | Feature | What It Measures | Why It Matters |
+|---|---------|-----------------|----------------|
+| 0 | `account_age_days` | How long this account has been active | Mule accounts are often newly opened |
+| 1 | `balance_mean` | Average transaction amount | Unusually uniform amounts signal smurfing |
+| 2 | `balance_std` | Volatility of transaction amounts | Low volatility + high volume = structured transactions |
+| 3 | `tx_count` | Total number of transactions | High velocity is a red flag |
+| 4 | `tx_velocity_7d` | Transactions in the last 7 days | Burst activity precedes withdrawal |
+| 5 | `fan_out_ratio` | How many different destinations money goes to | Mules scatter funds to many accounts |
+| 6 | `amount_entropy` | Diversity of transaction amounts | Round, repeated amounts = smurfing |
+| 7 | `risky_email` | Email domain risk score | Disposable email = identity hiding |
+| 8 | `device_mobile` | Fraction of mobile transactions | Fraud patterns differ by device |
+| 9 | `device_consistency` | Does the account use the same device? | Mules switch devices frequently |
+| 10 | `addr_entropy` | Address diversity | Mules transact from many locations |
+| 11 | `d_gap_mean` | Behavioural timing patterns | Bots have unnaturally regular timing |
+| 12 | `card_network_risk` | Card type risk (Visa/MC/Amex/Discover) | Some networks have higher fraud rates |
+| 13 | `product_code_risk` | Transaction product type risk | Cash-equivalent products are riskier |
+| 14 | `international_flag` | Cross-border transaction ratio | Cross-border moves funds across jurisdictions |
 
-### What Makes Our Approach Elite
+### Group 2: Graph-Level Features (computed from the transaction network)
 
-1. **20 engineered features** per node including device fingerprinting, amount entropy (smurfing detection), fan-out ratio, temporal burst velocity
-2. **Ring detection** using Johnson's algorithm — directly catches circular laundering patterns
-3. **Community detection** — identifies entire fraud clusters, not just individual accounts
-4. **3-layer hybrid GNN** (SAGEConv + GATConv + SAGEConv) with attention mechanism that learns which neighbors matter
-5. **Focal Loss** — handles the severe class imbalance in fraud data (only ~3% fraud) far better than class weights
-6. **Explainability** — every risk verdict comes with human-readable reasons (e.g. "High fan-out: distributing funds to many accounts")
-
----
-
-## Data Pipeline
-
-### Dataset
-
-**IEEE-CIS Fraud Detection** (Kaggle) — Real anonymized transaction data from Vesta Corporation with 590k transactions, 394 features, and verified fraud labels.
-
-Download: https://www.kaggle.com/c/ieee-fraud-detection/data
-
-### Step 1 — `data_generator.py`
-
-Loads and merges `train_transaction.csv` + `train_identity.csv`, then engineers per-account node features and builds the transaction edge list.
-
-**What it does:**
-- Merges transaction and identity files on `TransactionID`
-- Creates compound user identity: `card1_card4_card6` (more precise than card1 alone)
-- Aggregates all transactions per user into node-level statistics
-- Extracts device fingerprinting signals from the identity file
-- Produces `nodes.csv` (one row per unique account) and `transactions.csv` (edges)
-
-**Output:**
-```
-shared-data/nodes.csv         — ~12,000 unique accounts with 15 raw features
-shared-data/transactions.csv  — ~100,000 transaction edges
-```
-
-### Step 2 — `feature_engineering.py`
-
-Builds the full graph and computes advanced network-level features that are impossible to get from transaction data alone.
-
-**What it does:**
-- Constructs a directed NetworkX graph from the transaction edges
-- Runs **PageRank** to find central hub accounts
-- Runs **Johnson's cycle detection algorithm** to find laundering rings (3–8 node cycles)
-- Runs **Louvain community detection** to identify fraud clusters
-- Computes per-node reciprocity score (circular flow indicator)
-- Computes second-hop fraud exposure (guilt-by-association)
-- Applies MinMax normalization across all 20 features
-- Saves normalization parameters for consistent inference
-- Creates stratified train/val/test masks (70/15/15)
-
-**Output:**
-```
-shared-data/processed_graph.pt   — PyTorch Geometric Data object (tensors)
-shared-data/norm_params.json     — Normalization min/max per feature
-shared-data/nodes.csv            — Updated with graph-derived features
-```
+| # | Feature | What It Measures | Why It Matters |
+|---|---------|-----------------|----------------|
+| 15 | `pagerank` | Network centrality (importance) | Hubs in fraud networks = organisers |
+| 16 | `in_out_ratio` | Inflow vs outflow of money | Mules receive more than they send |
+| 17 | `reciprocity_score` | Circular flow detection | Money bouncing back = layering |
+| 18 | `community_fraud_rate` | Fraud rate in the account's cluster | Fraudsters cluster together |
+| 19 | `ring_membership` | Number of circular rings this account is in | Direct laundering ring membership |
+| 20 | `second_hop_fraud_rate` | Fraud density 2 hops away | Guilt-by-association propagation |
 
 ---
 
-## Feature Engineering
+## Money Laundering Ring Detection
 
-All 20 node features fed into the GNN:
+One of the most powerful features of MuleHunter is its ability to detect **mule ring structures** — coordinated groups of accounts that pass money between themselves in patterns designed to obscure its origin.
 
-| # | Feature | Source | What It Catches |
-|---|---------|--------|----------------|
-| 0 | `account_age_days` | D1 column | New accounts used for one-time fraud |
-| 1 | `balance_mean` | TransactionAmt mean | Unusually high transaction amounts |
-| 2 | `balance_std` | TransactionAmt std | Low std = smurfing (fixed round amounts) |
-| 3 | `tx_count` | Transaction count | Velocity fraud — too many transactions |
-| 4 | `tx_velocity_7d` | Recent 7-day count | Burst patterns before account goes dormant |
-| 5 | `fan_out_ratio` | Unique targets / tx count | Mules distribute to many recipients |
-| 6 | `amount_entropy` | Shannon entropy of amounts | Layering — amounts suspiciously similar |
-| 7 | `risky_email` | P_emaildomain | Anonymous / disposable email domains |
-| 8 | `device_mobile` | DeviceType | Higher fraud rate on mobile |
-| 9 | `device_consistency` | DeviceType diversity | Mules switch devices frequently |
-| 10 | `addr_entropy` | addr1 diversity | Mules transact from many addresses |
-| 11 | `d_gap_mean` | D1–D5 columns mean | Irregular behavioral timing gaps |
-| 12 | `card_network_risk` | card4 encoding | Prepaid/discover = higher risk |
-| 13 | `product_code_risk` | ProductCD encoding | Certain product categories = higher risk |
-| 14 | `international_flag` | card3 threshold | Cross-border layering patterns |
-| 15 | `pagerank` | NetworkX PageRank | High centrality = potential distribution hub |
-| 16 | `in_out_ratio` | Edge weight sums | Mules receive then immediately forward |
-| 17 | `reciprocity_score` | Mutual edge count | A→B and B→A = circular money flow |
-| 18 | `community_fraud_rate` | Community detection | Embedded in a known fraud cluster |
-| 19 | `ring_membership` | Cycle detection | Directly participates in laundering ring |
-
----
-
-## GNN Architecture
-
-### `MuleHunterGNN` — 3-Layer Hybrid with Residual Connection
+### Ring Shapes We Detect
 
 ```
-Input: Node feature matrix X (N × 20)
-         │
-         ├────────────────────────────────────┐
-         │                                    │ skip connection
-         ▼                                    │ Linear(20 → 32)
-   SAGEConv(20 → 64)                          │
-   BatchNorm(64) + ReLU + Dropout(0.3)        │
-         │                                    │
-         ▼                                    │
-   GATConv(64 → 64, heads=4, concat=False)   │
-   BatchNorm(64) + ReLU + Dropout(0.3)        │
-         │                                    │
-         ▼                                    │
-   SAGEConv(64 → 32)                          │
-   BatchNorm(32) + ReLU                       │
-         │                                    │
-         └────────── Add (residual) ──────────┘
-         │
-         ▼
-   Linear(32 → 16) + ReLU + Dropout(0.4)
-         │
-         ▼
-   Linear(16 → 2)
-         │
-         ▼
-   LogSoftmax → [P(safe), P(mule)] per node
+    STAR                CHAIN               CYCLE            DENSE CLUSTER
+
+     A                A → B → C            A → B            A ←→ B
+   / | \                                   ↑   |            ↑ ↘  ↑ ↘
+  B  C  D                                  |   ↓            |   C   |
+   \ | /                                   D ← C            D ←→ E
+     E
+
+  One hub      Sequential   Perfect   Fully interconnected
+  distributes  laundering   loop      criminal network
 ```
 
-### Why Each Component
-
-| Component | Why We Use It |
-|-----------|--------------|
-| **SAGEConv (Layer 1)** | Samples and aggregates from large neighborhoods — efficient on large graphs, captures broad context |
-| **GATConv (Layer 2, 4 heads)** | Attention mechanism learns which neighbors are most relevant for fraud detection — critical for ring identification |
-| **SAGEConv (Layer 3)** | Final aggregation before classification |
-| **Residual/skip connection** | Prevents over-smoothing — deep GNNs can make all nodes look similar, the skip preserves original features |
-| **BatchNorm** | Stabilizes training on heterogeneous financial data with very different feature scales |
-| **Focal Loss (α=0.75, γ=2.0)** | Designed for class imbalance — down-weights the easy majority (safe accounts), forces the model to focus on hard fraud cases |
-| **AdamW + CosineAnnealingLR** | Better generalization than Adam alone; cosine schedule prevents getting stuck in local minima |
-| **F1-based early stopping** | Saves the checkpoint with best fraud F1, not best accuracy — crucial because accuracy is misleading with 3% fraud rate |
-
-### Training Details
-
-- **Optimizer:** AdamW (lr=0.005, weight_decay=1e-4)
-- **Scheduler:** CosineAnnealingLR (T_max=200, eta_min=1e-5)
-- **Loss:** Focal Loss (α=0.75, γ=2.0)
-- **Early stopping:** patience=30 epochs on validation F1
-- **Gradient clipping:** max_norm=1.0
-- **Split:** 70% train / 15% val / 15% test (stratified)
-- **Max epochs:** 500
+Each account's **role** within the ring is classified:
+- **HUB** — the organiser who coordinates fund flows
+- **BRIDGE** — connects different parts of the network (high betweenness centrality)
+- **MULE** — a leaf node receiving and forwarding funds
 
 ---
 
-## API Reference
+## Community Detection
 
-**Base URL:** `http://localhost:8001`
+Beyond individual rings, MuleHunter uses **greedy modularity community detection** to identify clusters of accounts that transact heavily amongst themselves. High-fraud clusters (>30% of members are known fraudsters) are flagged as high-risk, and all accounts within them receive elevated suspicion scores.
 
-**Interactive docs:** `http://localhost:8001/docs`
+This is powerful because it catches **collusive fraud networks** — groups of fraudsters who haven't formed explicit rings but who are statistically over-connected to each other.
 
 ---
 
-### `GET /health`
-System status and model metadata.
+## The API
 
-**Response:**
-```json
-{
-  "status": "HEALTHY",
-  "model_loaded": true,
-  "nodes_count": 12483,
-  "version": "MuleHunter-V2-Elite",
-  "test_f1": 0.871,
-  "test_auc": 0.953,
-  "gnn_endpoint": "/v1/gnn/score"
-}
+The inference service runs as a FastAPI application and exposes these endpoints:
+
+### Core Scoring
+
+```
+POST /v1/gnn/score
+```
+The main Spring Boot integration endpoint. Takes an account ID and optional graph context from the Java backend. Returns the full risk schema including GNN score, cluster info, ring membership, and risk factors.
+
+```
+POST /analyze-transaction
+```
+Single transaction scoring for dashboard use. Returns risk score, verdict (SAFE / SUSPICIOUS / CRITICAL), and human-readable risk factors explaining the decision.
+
+```
+POST /analyze-batch
+```
+Score up to 100 transactions in one request. Efficient for batch processing use cases.
+
+### Investigation Tools
+
+```
+GET /detect-rings
+```
+Returns detected money laundering rings from the pre-cached cycle detection. Filter by maximum ring size.
+
+```
+GET /cluster-report
+```
+Summary of all detected fraud communities — how many clusters, which are high-risk, top flagged accounts.
+
+```
+GET /network-snapshot
+```
+Graph data (nodes + edges) for the highest-risk accounts. Designed to power network visualisation dashboards.
+
+### Monitoring
+
+```
+GET /health       # Service health, model version, cache stats
+GET /metrics      # Full evaluation report (F1, AUC, Precision, Recall)
 ```
 
 ---
 
-### `POST /analyze-transaction`
-Real-time risk scoring for a single transaction with full explainability.
+## Output Schema
 
-**Request:**
-```json
-{
-  "source_id": "13926_visa_debit",
-  "target_id": "loc_299",
-  "amount": 4500.00,
-  "device_type": "mobile"
-}
-```
+Every `/v1/gnn/score` call returns this full JSON:
 
-**Response:**
-```json
-{
-  "node_id": "13926_visa_debit",
-  "risk_score": 0.8923,
-  "verdict": "CRITICAL — MULE ACCOUNT",
-  "risk_level": 2,
-  "risk_factors": [
-    "High fan-out: distributing funds to many accounts",
-    "Burst activity: unusually high recent transaction volume",
-    "Node participates in a known laundering ring"
-  ],
-  "out_degree": 18,
-  "in_degree": 3,
-  "community_risk": 0.4200,
-  "ring_detected": true,
-  "network_centrality": 0.003421,
-  "linked_accounts": ["loc_299", "loc_104", "loc_512"],
-  "population_size": 12483,
-  "latency_ms": 12.4,
-  "model_version": "MuleHunter-V2-Elite"
-}
-```
-
-**Risk Levels:**
-- `0` = SAFE (risk < 0.60)
-- `1` = SUSPICIOUS (0.60 ≤ risk < 0.85)
-- `2` = CRITICAL — MULE ACCOUNT (risk ≥ 0.85)
-
----
-
-### `POST /analyze-batch`
-Bulk analysis of up to 100 transactions at once.
-
-**Request:**
-```json
-{
-  "transactions": [
-    { "source_id": "abc", "target_id": "loc_1", "amount": 1000 },
-    { "source_id": "xyz", "target_id": "loc_2", "amount": 500 }
-  ]
-}
-```
-
-**Response:**
-```json
-{
-  "count": 2,
-  "flagged": 1,
-  "results": [
-    { "source_id": "abc", "risk_score": 0.91, "verdict": "CRITICAL", "latency_ms": 8.2 },
-    { "source_id": "xyz", "risk_score": 0.12, "verdict": "SAFE",     "latency_ms": 6.1 }
-  ]
-}
-```
-
----
-
-### `GET /detect-rings`
-Detects circular money laundering patterns in the full transaction graph using Johnson's algorithm.
-
-**Query params:** `max_size` (default: 6), `limit` (default: 20)
-
-**Response:**
-```json
-{
-  "rings_detected": 7,
-  "rings": [
-    {
-      "nodes": ["acc_A", "acc_B", "acc_C", "acc_A"],
-      "size": 3,
-      "volume": 48250.00,
-      "risk": 0.965
-    }
-  ],
-  "high_risk_nodes": ["acc_A", "acc_B", "acc_C"]
-}
-```
-
----
-
-### `GET /cluster-report`
-Community-level fraud cluster summary using Louvain community detection.
-
-**Response:**
-```json
-{
-  "total_clusters": 142,
-  "high_risk_clusters": 8,
-  "top_clusters": [
-    { "node_id": "13926_visa_debit", "community_fraud_rate": 0.67, "is_fraud": 1 }
-  ]
-}
-```
-
----
-
-### `GET /network-snapshot`
-Returns graph node and edge data for the dashboard visualization.
-
-**Query params:** `limit` (default: 200)
-
-**Response:**
-```json
-{
-  "nodes": [
-    { "id": "13926_visa_debit", "is_fraud": 1, "risk": 0.89, "ring": true, "pagerank": 0.003 }
-  ],
-  "edges": [
-    { "source": "13926_visa_debit", "target": "loc_299", "weight": 4500 }
-  ],
-  "stats": {
-    "total_nodes": 12483,
-    "total_edges": 98241,
-    "fraud_nodes": 374,
-    "fraud_rate": 0.0300
-  }
-}
-```
-
----
-
-### `GET /metrics`
-Full evaluation report from the last training run.
-
-**Response:**
-```json
-{
-  "test": {
-    "f1": 0.871,
-    "precision": 0.842,
-    "recall": 0.903,
-    "auc_roc": 0.953,
-    "confusion_matrix": [[11200, 89], [36, 338]]
-  },
-  "val": { "..." },
-  "best_val_f1": 0.868,
-  "model_config": {
-    "architecture": "SAGE→GAT(4heads)→SAGE + Residual",
-    "loss": "FocalLoss(alpha=0.75, gamma=2.0)"
-  }
-}
-```
-
----
-
-### `POST /v1/gnn/score`
-**Spring Boot contract endpoint.** Called in parallel with the EIF service by the Risk Fusion layer. This is the only endpoint Spring Boot talks to.
-
-**Request:**
-```json
-{
-  "accountId": "ACC1553",
-  "graphFeatures": {
-    "suspiciousNeighborCount": 4,
-    "twoHopFraudDensity": 0.47,
-    "connectivityScore": 0.82
-  }
-}
-```
-
-**Response:**
 ```json
 {
   "model": "GNN",
-  "version": "MuleHunter-V2-Elite",
-  "gnnScore": 0.783241,
-  "confidence": 0.566482,
-  "fraudClusterId": 42,
-  "embeddingNorm": 0.914523
+  "version": "MuleHunter-V3",
+  "entity": { "type": "ACCOUNT", "id": "card1_visa_debit" },
+  "scores": {
+    "gnnScore":   0.847,
+    "confidence": 0.694,
+    "riskLevel":  "HIGH"
+  },
+  "fraudCluster": {
+    "clusterId":        12,
+    "clusterSize":      9,
+    "clusterRiskScore": 0.84
+  },
+  "networkMetrics": {
+    "suspiciousNeighbors": 5,
+    "sharedDevices":       2,
+    "sharedIPs":           1,
+    "centralityScore":     0.0081,
+    "transactionLoops":    true
+  },
+  "muleRingDetection": {
+    "isMuleRingMember": true,
+    "ringId":           3,
+    "ringShape":        "STAR",
+    "ringSize":         7,
+    "role":             "MULE",
+    "hubAccount":       "card5_visa_credit",
+    "ringAccounts":     ["card1_...", "card2_...", "..."]
+  },
+  "riskFactors": [
+    "Embedded in a high-risk fraud community",
+    "member_of_star_mule_ring",
+    "Circular flows detected: money bouncing back"
+  ],
+  "embedding":  { "embeddingNorm": 0.923 },
+  "timestamp":  "2026-03-14T10:42:11Z",
+  "gnnScore":       0.847,
+  "confidence":     0.694,
+  "fraudClusterId": 12,
+  "embeddingNorm":  0.923
 }
 ```
 
-**Field meanings:**
+---
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `gnnScore` | float 0–1 | Structural fraud probability from GNN forward pass |
-| `confidence` | float 0–1 | Softmax gap between fraud/safe class — how certain the model is |
-| `fraudClusterId` | int | Community cluster the account belongs to (encoded from fraud rate) |
-| `embeddingNorm` | float | L2 norm of the node's learned 32-dim embedding vector |
+## Key Engineering Decisions
 
-**How Spring Boot uses this in the fusion formula:**
-```
-finalRisk = 0.6 × gnnScore + 0.3 × eifScore + 0.1 × identitySignalComponent
-```
+### Why Focal Loss?
 
-**Works for unknown accounts too** — if `accountId` was never seen during training, the API injects it as a zero-feature node and still returns a valid score.
+Standard cross-entropy loss treats all mistakes equally. But in fraud detection, fraud cases are only 3–5% of the data. The model would achieve 97% accuracy just by predicting "safe" for everything.
+
+**Focal Loss** down-weights easy examples (the 95% of clean transactions the model gets right trivially) and focuses the gradient signal on the hard cases — the borderline fraud cases that are most important to get right. This is the same technique used in object detection (RetinaNet) for the same reason: severe class imbalance.
+
+### Why Optimal Threshold Tuning?
+
+After training, the default decision threshold of 0.5 is almost never optimal for imbalanced datasets. We use the validation set to find the threshold that maximises F1 score, then apply it consistently to the test set and in production. This alone can improve real-world recall by 10–20%.
+
+### Why O(1) Inference?
+
+During startup, MuleHunter runs a single full forward pass over all known nodes and caches the results. Every subsequent scoring request for a known account is a dictionary lookup — microseconds, not milliseconds. New/unknown accounts trigger a minimal incremental forward pass. This is how the system achieves sub-50ms latency under load.
+
+### Why Restrict Ring Detection to Account Nodes?
+
+In the raw transaction graph, there are two types of nodes: account nodes (`card1_visa_debit`) and location nodes (`loc_1234` representing merchant addresses). Location nodes can form spurious "rings" — account A → location X → account B → location X — that look circular but aren't money laundering. Restricting `simple_cycles` to account-only subgraphs eliminates this noise entirely.
 
 ---
 
-## Spring Boot Integration
+## Performance Targets
 
-This section is for the backend team connecting Spring Boot to the GNN service.
-
-### Endpoint to call
-```
-POST http://localhost:8001/v1/gnn/score
-```
-
-### Java parallel invocation (from the architecture doc)
-```java
-CompletableFuture<GnnResponse> gnnFuture = callGnnService(request);
-CompletableFuture<EifResponse> eifFuture = callEifService(request);
-CompletableFuture.allOf(gnnFuture, eifFuture).join();
-```
-
-### What to send
-Spring Boot sends the payload **after** it has computed behavioral features and run the Identity Collector. The `graphFeatures` block comes from Spring Boot's own graph context computation (Step 6 in the architecture flow).
-
-```java
-GnnRequest gnnRequest = GnnRequest.builder()
-    .accountId(request.getSourceAccountId())
-    .graphFeatures(GraphFeatures.builder()
-        .suspiciousNeighborCount(graphCtx.getSuspiciousNeighborCount())
-        .twoHopFraudDensity(graphCtx.getTwoHopFraudDensity())
-        .connectivityScore(graphCtx.getConnectivityScore())
-        .build())
-    .build();
-```
-
-### Score range guarantee
-`gnnScore` is always in `[0, 1]` — safe to use directly in the fusion formula without any normalization.
-
-### Performance expectations
-- Inference time: **< 40ms**
-- Embedding retrieval: **< 10ms**
-- Service startup (model load): ~5 seconds on first boot, instant after
-
-### Health check before calling
-```
-GET http://localhost:8001/health
-→ { "status": "HEALTHY", "model_loaded": true }
-```
-Do not call `/v1/gnn/score` if `model_loaded` is false — the model hasn't finished loading yet.
+| Metric | Target | Notes |
+|--------|--------|-------|
+| F1 Score | > 0.80 | Harmonic mean of precision and recall |
+| AUC-ROC | > 0.90 | Area under the ROC curve |
+| Inference latency | < 50ms | For known accounts (O(1) cache lookup) |
+| Ring detection | < 30s | Time-bounded startup pre-cache |
 
 ---
 
-The dashboard (`frontend/index.html`) is a self-contained HTML file that connects to the AI API at `http://localhost:8001`.
+## Datasets Used
 
-### Features
-
-- **Transaction Scanner** — Enter any source/target account ID and amount, get a real-time risk verdict with color-coded result card, risk score bar, and human-readable risk factors
-- **Fraud Network Graph** — D3.js force-directed graph showing all accounts as nodes colored by fraud status (red = fraud, purple = ring member, yellow = suspicious, blue = safe). Drag nodes, zoom, hover for details
-- **Alert Feed** — Live stream of all analyzed transactions with timestamps and risk scores
-- **Ring Detection** — Button that calls `/detect-rings` and displays discovered laundering rings in the alert feed
-- **Model Metrics Strip** — Always-visible F1, Precision, Recall, AUC-ROC from the latest training run
-- **Demo Mode** — Works even without the API running, using randomly generated data for UI demonstration
-
-### Dashboard works in demo mode
-
-If the API is offline, the dashboard generates synthetic data locally so the UI is always demonstrable to judges even without the backend running.
+- **IEEE-CIS Fraud Detection** (Kaggle) — Primary training dataset
+- **APATE Social Network Fraud** — Graph topology reference
+- **PaySim Financial Fraud** — Synthetic UPI flow patterns
+- **DGFraud / YelpChi / T-Finance** — Graph fraud benchmarks
 
 ---
 
-## Setup & Installation
-
-### Prerequisites
-- Python 3.10 or 3.11
-- pip 23+
-- ~4GB disk space for Kaggle data + model
-
-### 1. Navigate to your directory
-```bash
-cd ai-engine
-```
-
-### 2. Create and activate virtual environment
-```bash
-python -m venv venv
-
-# Windows:
-venv\Scripts\activate
-
-# Mac / Linux:
-source venv/bin/activate
-```
-
-### 3. Install dependencies in the correct order
-
-> ⚠️ `torch-scatter` and `torch-sparse` require torch to already be installed. Do NOT use `pip install -r requirements.txt` directly — install in this order:
-
-```bash
-# Step 1: torch first
-pip install torch==2.3.1
-
-# Step 2: PyG scatter/sparse via prebuilt wheels (no compilation)
-pip install torch-scatter torch-sparse -f https://data.pyg.org/whl/torch-2.3.1+cpu.html
-
-# Step 3: everything else
-pip install torch-geometric==2.5.3
-pip install fastapi==0.115.0 "uvicorn[standard]==0.30.6" pydantic==2.8.2
-pip install pandas==2.2.2 numpy==1.26.4 scikit-learn==1.5.1 networkx==3.3
-```
-
-> If you are on a GPU machine, replace `cpu` with `cu121` or `cu118` in the `-f` URL.
-
-### 4. Download Kaggle data
-
-1. Go to https://www.kaggle.com/c/ieee-fraud-detection/data
-2. Download `train_transaction.csv` and `train_identity.csv`
-3. Place both files in `../shared-data/` (one level up from `ai-engine/`)
-
----
-
-## Running the Pipeline
-
-All commands are run from inside `ai-engine/` with the venv activated.
-
-### Step 1 — Generate node and edge data (~2 min)
-```bash
-python data_generator.py
-```
-Reads 100k rows from Kaggle CSVs, engineers 15 node features, saves `nodes.csv` and `transactions.csv`.
-
-### Step 2 — Build graph and compute advanced features (~5–10 min)
-```bash
-python feature_engineering.py
-```
-Builds NetworkX graph, runs ring detection and community detection, computes PageRank and reciprocity, saves `processed_graph.pt` and `norm_params.json`.
-
-> Ring detection time scales with graph size. If it takes too long, reduce `nrows` in `data_generator.py` from `100_000` to `30_000`.
-
-### Step 3 — Train the GNN (~10–15 min on CPU, ~2 min on GPU)
-```bash
-python train_model.py
-```
-Trains the 3-layer hybrid GNN with Focal Loss and F1-based early stopping. Saves `mule_model.pth`, `eval_report.json`, and `model_meta.json`.
-
-You will see live training output like:
-```
- Epoch |     Loss |   Val F1 |  Val AUC | Val Prec |  Val Rec
-------------------------------------------------------------
-     0 |   0.4821 |   0.3120 |   0.7834 |   0.4102 |   0.2512
-    20 |   0.3104 |   0.6240 |   0.8901 |   0.7234 |   0.5512
-   ...
-   180 |   0.1823 |   0.8710 |   0.9530 |   0.8420 |   0.9030
-```
-
-### Step 4 — Start the inference API
-```bash
-uvicorn inference_service:app --host 0.0.0.0 --port 8001 --reload
-```
-API is now live at `http://localhost:8001`
-
-### Step 5 — Open the dashboard
-Open `frontend/index.html` directly in your browser. No server needed — it's a standalone HTML file.
-
-### Step 6 — Verify everything
-- Health check: http://localhost:8001/health
-- Interactive API docs: http://localhost:8001/docs
-- Dashboard should show "AI ONLINE" in the top right
-
----
-
-## Testing
-
-A full solo test suite is included at `ai-engine/test_my_work.py`. Run it after the API is started to verify everything is working before connecting to Spring Boot.
-
-### Install test dependency
-```bash
-pip install httpx
-```
-
-### Run all tests
-```bash
-python test_my_work.py
-```
-
-### What it checks
-
-| Section | What it verifies |
-|---------|-----------------|
-| File checks | All pipeline outputs exist (model, graph, norm params, eval report) |
-| Data sanity | `nodes.csv` has correct columns, fraud labels exist, fraud rate is realistic |
-| Model performance | F1 and AUC hit the target thresholds |
-| API connectivity | Service is running, model is loaded, health endpoint responds |
-| `/v1/gnn/score` | Spring Boot contract — all 4 fields present, scores in `[0,1]`, works for unknown accounts |
-| `/analyze-transaction` | Dashboard endpoint works, latency is acceptable |
-| `/analyze-batch` | Bulk scoring works for multiple transactions |
-| `/detect-rings` | Ring detection endpoint responds without crashing |
-| `/cluster-report` | Community data is accessible |
-| `/metrics` | Eval report is accessible |
-| Determinism | Same input always produces the same score (critical for production) |
-
-### Expected output
-```
-───────────────────────────────────────────────────────
-  1. FILE CHECKS
-───────────────────────────────────────────────────────
-  ✅  mule_model.pth exists
-  ✅  processed_graph.pt exists
-  ...
-
-═══════════════════════════════════════════════════════
-  RESULT:  34/34 passed   |   0 failed
-═══════════════════════════════════════════════════════
-
-  🎉  All checks passed. Your work is bulletproof.
-```
-
-### Common failures and fixes
-
-| Failure | Cause | Fix |
-|---------|-------|-----|
-| `❌ mule_model.pth exists` | Training not run yet | Run `python train_model.py` |
-| `❌ API is reachable` | API not started | Run `uvicorn inference_service:app --port 8001` |
-| `❌ embeddingNorm > 0` | `return_embedding=True` change missing in `forward()` | Check the `forward()` method in `inference_service.py` |
-| `❌ F1 > 0.80 (target)` | Model needs more training | Increase epochs or reduce `nrows` for cleaner data |
-| `❌ 3 identical calls = same score` | Non-determinism in model | Check no dropout is active during inference |
-| Ring detection hangs | Graph too large | Test uses `max_size=4&limit=5` — should be fine |
-
----
-
-## Model Performance
-
-### Target KPIs
-
-| Metric | Round 1 Baseline | v2.0 Target | Why It Matters |
-|--------|-----------------|-------------|----------------|
-| F1 Score | ~0.60 | **> 0.85** | Balances precision and recall for fraud |
-| Precision | ~0.55 | **> 0.80** | Minimizes false positives (wrongly flagging legit users) |
-| Recall | ~0.65 | **> 0.82** | Minimizes false negatives (missing actual fraud) |
-| AUC-ROC | ~0.80 | **> 0.95** | Overall discrimination ability |
-| Inference Latency | ~200ms | **< 20ms** | Real-time UPI payment integration |
-
-### What Changed from Round 1
-
-| Aspect | Round 1 | Round 2 (v2.0) |
-|--------|---------|-----------------|
-| Features | 5 basic features | 20 engineered features |
-| GNN layers | 2 × SAGEConv | SAGEConv + GATConv(4h) + SAGEConv + Residual |
-| Loss function | Weighted NLL (manual weight=15) | Focal Loss (α=0.75, γ=2.0) |
-| Ring detection | None | Johnson's algorithm — direct AML detection |
-| Community detection | None | Louvain — fraud cluster identification |
-| Explainability | None | Human-readable risk factors per verdict |
-| API endpoints | 2 | 8 (batch, rings, clusters, network, metrics, `/v1/gnn/score`) |
-| Dashboard | Basic | D3 force graph + alert feed + demo mode |
-| Evaluation | Training accuracy only | F1 / Precision / Recall / AUC-ROC / Confusion matrix |
-
----
-
-## Why Our Approach Wins
-
-### Directly addresses all challenge requirements
-
-| Requirement | Our Implementation |
-|------------|-------------------|
-| Mule account detection using transaction graph features | ✅ GNN trained on 20 graph-derived features |
-| Device fingerprinting | ✅ device_mobile, device_consistency features from identity file |
-| Collusive fraud pattern detection (money-mule rings) | ✅ Johnson's cycle detection + community detection |
-| Real-time risk scoring API | ✅ FastAPI at < 20ms latency |
-| Precision/recall evaluation report | ✅ `eval_report.json` with full metrics |
-| Dashboard / visualization layer | ✅ D3 force-directed fraud network graph |
-
-### Technical differentiators
-
-- **GATConv attention** — the model learns which transaction neighbors actually indicate fraud, not just treating all neighbors equally
-- **Ring detection** — the only approach that directly catches circular laundering patterns at graph scale
-- **Focal Loss** — specifically engineered for class-imbalanced problems like fraud (< 5% positive rate)
-- **Inductive inference** — the API can score completely new accounts never seen during training by injecting them into the graph
-- **Explainability** — every risk score comes with reasons, critical for AML compliance where analysts need to justify flags
-
----
-
-## .gitignore Recommendations
-
-Add this to your root `.gitignore`:
-
-```
-# AI Engine
-ai-engine/venv/
-ai-engine/__pycache__/
-ai-engine/*.pyc
-
-# Shared data — never commit raw data or trained models
-shared-data/train_transaction.csv
-shared-data/train_identity.csv
-shared-data/*.pt
-shared-data/*.pth
-shared-data/nodes.csv
-shared-data/transactions.csv
-shared-data/norm_params.json
-shared-data/eval_report.json
-shared-data/model_meta.json
-```
-
-> `test_my_work.py` **should** be committed — it's a development tool, not generated data.
-
----
-
-*Built for ISEA Cyber Security Innovation Challenge 1.0 — Fintech Security Domain*
-*MuleHunter AI v2.0 — AI Engine*
+*MuleHunter AI — Because every fraudster leaves a trace in the graph.*
