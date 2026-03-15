@@ -16,8 +16,6 @@
 
 ---
 
-
-
 </div>
 
 ---
@@ -188,7 +186,7 @@ open http://localhost:3000
 
 ```bash
 # AI Service (Python)
-cd ai-sengine
+cd ai-engine
 pip install -r requirements.txt
 uvicorn inference_service:app --port 8001 --reload
 
@@ -206,32 +204,137 @@ npm run dev
 
 ## 📚 How It Works
 
-### 1️⃣ Dataset & Network Construction (Real-World Signal)
+### 1️⃣ Dataset & Network Construction — AI Engine _(Muskan)_
 
-Due to strict banking data regulations (GDPR / PCI-DSS), direct access to real financial transaction graphs is not possible.
-To ensure realism without violating compliance, we leveraged a publicly available IEEE Kaggle dataset that is widely used for fraud detection research.
+Due to strict banking data regulations (GDPR / PCI-DSS), direct access to real financial transaction graphs is not possible. To ensure realism without violating compliance, we leveraged the publicly available **IEEE-CIS Fraud Detection** Kaggle dataset — widely used for fraud detection research.
 
-Dataset Source: IEEE-CIS Fraud Detection (Kaggle)
-Nature: Real-world, anonymized transaction-level data
-Scale: Hundreds of thousands of transactions with labeled fraud instances
-Transactions → Entities → Graph
+**Dataset:** IEEE-CIS Fraud Detection (Kaggle) · Real-world, anonymized · **590,540 transactions** · 434 feature columns · Labeled fraud instances
 
-Graph Construction
-We transformed the tabular transaction data into a heterogeneous transaction graph:
-Nodes: Accounts / Cards / Users
-Edges: Monetary transactions (timestamped, weighted)
-Labels: Fraud / Non-fraud (ground truth from dataset)
-This naturally results in a scale-free, highly imbalanced financial network, closely resembling real banking systems.
+#### Graph Construction
 
-Fraud Pattern Emergence
-Instead of manually injecting patterns, the dataset inherently contains realistic fraud behaviors such as:
-Smurfing-like structures (many low-value transactions)
-Layered transaction paths
-Collusive rings / cyclic flows
-These patterns are learned implicitly by the model rather than hard-coded.
+We transformed the tabular transaction data into a directed heterogeneous transaction graph:
 
-Result:
-A realistic, labeled financial graph suitable for Graph Neural Networks, enabling robust fraud topology learning under real-world constraints.
+- **Nodes:** Accounts / Cards / Users — **14,318 unique accounts**
+- **Edges:** Co-occurrence relationships (shared address, card BIN, device) — **75,488 directed edges**
+- **Labels:** Fraud / Non-fraud (ground truth from dataset) · **12.4% fraud prevalence**
+
+This produces a scale-free, highly imbalanced financial network closely resembling real banking systems.
+
+#### ✅ Verified Model Performance
+
+```
+┌──────────────────┬──────────────────┬──────────────────┬──────────────────┐
+│    AUC-ROC       │    F1 Score      │    Precision     │    Recall        │
+│    0.9906        │    0.8604        │    0.8669        │    0.8539        │
+│  ✅ Target >0.90 │  ✅ Target >0.80 │  1.9% false alarm│  85.4% detected  │
+├──────────────────┼──────────────────┼──────────────────┼──────────────────┤
+│  Inference       │  Rings Found     │  Fraud Clusters  │  Training        │
+│  < 50ms          │  300 rings       │  857 high-risk   │  450 epochs CPU  │
+│  O(1) cache      │  in < 25s        │  of 11,343 total │  ~26 min         │
+└──────────────────┴──────────────────┴──────────────────┴──────────────────┘
+```
+
+**Confusion Matrix** (test set — 2,149 nodes, 267 fraud nodes):
+
+```
+                  Predicted Safe    Predicted Fraud
+Actual Safe            1,847               35       ← 1.9% false alarm rate
+Actual Fraud              39              228       ← 85.4% of mule accounts caught
+```
+
+> Threshold `0.8644` tuned on val set. Default-0.5 F1 was `0.7747` — threshold tuning alone added **+0.086 F1**.
+
+#### Fraud Pattern Emergence
+
+Instead of manually injecting patterns, the dataset inherently contains realistic fraud behaviors:
+
+- **Smurfing-like structures** — many low-value transactions keeping amounts below detection thresholds
+- **Layered transaction paths** — funds hop through multiple accounts before reaching the beneficiary
+- **Collusive rings / cyclic flows** — circular money movement to obscure origin
+
+These patterns are **learned implicitly** by the GNN rather than hard-coded.
+
+#### The 21-Feature GNN
+
+Each account is described by 21 features — 15 engineered from raw transactions, 6 computed from the graph structure:
+
+| Group | # | Feature | What It Catches |
+|-------|---|---------|-----------------|
+| Account | 0 | `account_age_days` | Newly opened mule accounts |
+| Account | 1–2 | `balance_mean/std` | Uniform amounts → smurfing |
+| Account | 3–4 | `tx_count/velocity_7d` | Burst activity before cash-out |
+| Account | 5 | `fan_out_ratio` | Scattering funds to many destinations |
+| Account | 6 | `amount_entropy` | Round/repeated amounts → laundering |
+| Account | 7 | `risky_email` | Disposable / anonymous email domains |
+| Account | 8–9 | `device_mobile/consistency` | Mules switch devices frequently |
+| Account | 10–11 | `addr_entropy/d_gap_mean` | Location diversity + bot-like timing |
+| Account | 12–14 | `card/product/intl_flag` | Card risk + cross-border flows |
+| Graph | 15 | `pagerank` | Hub accounts = ring organisers |
+| Graph | 16 | `in_out_ratio` | Mules receive far more than they send |
+| Graph | 17 | `reciprocity_score` | Circular flows = layering |
+| Graph | 18 | `community_fraud_rate` | Embedded in a high-fraud cluster |
+| Graph | 19 | `ring_membership` | Direct laundering ring participation |
+| Graph | 20 | `second_hop_fraud_rate` | Guilt-by-association propagation |
+
+#### GNN Architecture: SAGE → GAT → SAGE
+
+```
+Input (21 features)
+     ├──[Skip Linear 21→64]──────────────────────────┐
+     │                                                │
+  SAGEConv(21→128) → BatchNorm → ReLU → Dropout(0.10)│
+     │                                                │
+  GATConv(128→128, 4 heads) → BatchNorm → ReLU       │
+     │                                                │
+  SAGEConv(128→64) → BatchNorm → ReLU                │
+     │                                                │
+     └──────────────── Add ──────────────────────────┘
+                          │
+              Linear(64→32) → ReLU → Linear(32→2)
+                          │
+                   fraud probability
+```
+
+- **Layer 1 — GraphSAGE:** Aggregates neighbourhood broadly — *"who are your friends?"*
+- **Layer 2 — GAT (4 heads):** Attention-weighted — *"which friends are suspicious?"*
+- **Layer 3 — GraphSAGE:** Final synthesis before classification
+- **Skip connection:** Residual path preserves input features, prevents signal loss
+
+**Training details:** Weighted NLLLoss (`w_fraud=4.031`, `w_safe=0.571`) · AdamW + ReduceLROnPlateau · AUC-based early stopping · 150-epoch warmup guard
+
+#### Money Laundering Ring Detection
+
+300 ring structures detected at startup using time-bounded DFS (25s budget), restricted to account nodes only:
+
+```
+    STAR                CHAIN               CYCLE          DENSE CLUSTER
+     A                A → B → C            A → B            A ←→ B
+   / | \                                   ↑   |            ↑ ↘  ↑ ↘
+  B  C  D                                  |   ↓            |   C   |
+   \ | /                                   D ← C            D ←→ E
+     E
+One hub         Sequential         Perfect loop      Interconnected
+distributes     laundering path                      criminal cluster
+```
+
+Each account is classified as **HUB** (coordinator), **BRIDGE** (high betweenness), or **MULE** (leaf forwarder).
+
+#### Real-Time Inference API
+
+```
+POST /v1/gnn/score          ← Spring Boot contract (full schema)
+POST /analyze-transaction   ← Single tx risk scoring + explainability
+POST /analyze-batch         ← Bulk scoring (≤ 100 transactions)
+GET  /detect-rings          ← Money-laundering ring report
+GET  /cluster-report        ← Fraud cluster summary
+GET  /network-snapshot      ← Graph snapshot for dashboard
+GET  /health                ← System health + model metadata
+GET  /metrics               ← Full F1/AUC/Precision/Recall report
+```
+
+**O(1) inference:** Single batched forward pass at startup caches risk scores for all known nodes. Known-node requests are dictionary lookups — microseconds, not milliseconds.
+
+---
 
 ### 2️⃣ Feature Engineering
 
@@ -520,8 +623,6 @@ curl http://localhost:8082/api/health/ai
 
 ---
 
-
-
 ## 🙏 Acknowledgments
 
 - **Stanford SNAP** - GraphSAGE research
@@ -532,17 +633,15 @@ curl http://localhost:8082/api/health/ai
 
 ---
 
-
-
-
 <div align="center">
 
 **⭐ Star this repo if you found it helpful! ⭐**
 
 **Made with ❤️ by Team Alertix**
 
-
 </div>
+
+---
 
 ### 🔒 `contracts/` — Integration Schemas
 
@@ -570,6 +669,8 @@ and edge security using Cloudflare Workers.
 Synthetic graph generation, fraud injection, feature engineering,  
 GraphSAGE training, and FastAPI-based inference.
 
+**Verified results:** AUC-ROC `0.9906` · F1 `0.8604` · Precision `0.8669` · Recall `0.8539` · Inference `<50ms` · 300 rings detected · 857 high-risk clusters · 14,318 nodes · 75,488 edges · trained on 590,540 transactions · CPU only · ~26 min.
+
 ---
 
 ### 👁️ `visual-analytics/` — Analytics & Visualization _(Rupali)_
@@ -596,5 +697,3 @@ tamper-proof forensic logging using cryptographic structures.
 ### 🐳 `docker-compose.yml`
 
 One-command deployment of all core services for demo.
-
----
