@@ -468,7 +468,7 @@ def build_edges(df: pd.DataFrame) -> pd.DataFrame:
 # MAIN PIPELINE
 # ──────────────────────────────────────────────────────────────────────────────
 
-def generate_dataset(nrows: int = 100_000):
+def generate_dataset(nrows: int = 590_540):
     """Full pipeline: Load → Feature-engineer → Save."""
     logger.info("=" * 60)
     logger.info("MuleHunter Data Generator v3.0")
