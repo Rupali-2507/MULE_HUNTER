@@ -45,6 +45,10 @@ public class VisualAnalyticsService {
                 .bodyValue(payload)
                 .retrieve()
                 .bodyToMono(Void.class)
-                .onErrorResume(e -> Mono.empty());
-    }
-}
+                .timeout(java.time.Duration.ofSeconds(3))
+                .onErrorResume(e -> {
+                System.err.println("⚠️ VISUAL SERVICE skipped: " + e.getMessage());
+                return Mono.empty();
+                });
+                }
+                }

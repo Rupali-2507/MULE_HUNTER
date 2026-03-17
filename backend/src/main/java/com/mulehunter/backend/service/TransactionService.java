@@ -2,8 +2,6 @@ package com.mulehunter.backend.service;
 
 import com.mulehunter.backend.DTO.BehaviorFeaturesDTO;
 import com.mulehunter.backend.DTO.GraphFeaturesDTO;
-import com.mulehunter.backend.DTO.IdentityFeaturesDTO;
-import com.mulehunter.backend.DTO.MlScoringRequestDTO;
 import com.mulehunter.backend.model.AiRiskResult;
 import com.mulehunter.backend.model.Transaction;
 import com.mulehunter.backend.model.TransactionRequest;
@@ -11,54 +9,55 @@ import com.mulehunter.backend.repository.TransactionRepository;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
-import java.util.HashMap;
+import java.util.Map;
 
 @Service
 public class TransactionService {
 
-    private final TransactionRepository       repository;
-    private final NodeEnrichedService         nodeEnrichedService;
-    private final VisualAnalyticsService      visualAnalyticsService;
-    private final Ja3SecurityService          ja3SecurityService;
-    private final AiRiskService               aiRiskService;
+    private final TransactionRepository repository;
+    private final NodeEnrichedService nodeEnrichedService;
+    private final VisualAnalyticsService visualAnalyticsService;
+    private final Ja3SecurityService ja3SecurityService;
+    private final AiRiskService aiRiskService;
     private final TransactionValidationService validationService;
-    private final IdentityCollectorService    identityCollectorService;
-    private final AggregateUpdateService      aggregateUpdateService;
-    private final BehaviorFeatureService      behaviorFeatureService;
-    private final GraphFeatureService         graphFeatureService;
+    private final IdentityCollectorService identityCollectorService;
+    private final BehaviorFeatureService behaviorFeatureService;
+    private final GraphFeatureService graphFeatureService;
+    private final AggregateUpdateService aggregateUpdateService;
 
     public TransactionService(
-            TransactionRepository       repository,
-            NodeEnrichedService         nodeEnrichedService,
-            VisualAnalyticsService      visualAnalyticsService,
-            Ja3SecurityService          ja3SecurityService,
-            AiRiskService               aiRiskService,
+            TransactionRepository repository,
+            NodeEnrichedService nodeEnrichedService,
+            VisualAnalyticsService visualAnalyticsService,
+            Ja3SecurityService ja3SecurityService,
+            AiRiskService aiRiskService,
             TransactionValidationService validationService,
-            IdentityCollectorService    identityCollectorService,
-            AggregateUpdateService      aggregateUpdateService,
-            BehaviorFeatureService      behaviorFeatureService,
-            GraphFeatureService         graphFeatureService
+            IdentityCollectorService identityCollectorService,
+            BehaviorFeatureService behaviorFeatureService,
+            GraphFeatureService graphFeatureService,
+            AggregateUpdateService aggregateUpdateService
     ) {
-        this.repository             = repository;
-        this.nodeEnrichedService    = nodeEnrichedService;
+        this.repository = repository;
+        this.nodeEnrichedService = nodeEnrichedService;
         this.visualAnalyticsService = visualAnalyticsService;
-        this.ja3SecurityService     = ja3SecurityService;
-        this.aiRiskService          = aiRiskService;
-        this.validationService      = validationService;
+        this.ja3SecurityService = ja3SecurityService;
+        this.aiRiskService = aiRiskService;
+        this.validationService = validationService;
         this.identityCollectorService = identityCollectorService;
-        this.aggregateUpdateService = aggregateUpdateService;
         this.behaviorFeatureService = behaviorFeatureService;
-        this.graphFeatureService    = graphFeatureService;
+        this.graphFeatureService = graphFeatureService;
+        this.aggregateUpdateService = aggregateUpdateService;
     }
 
     public Mono<Transaction> createTransaction(TransactionRequest request, String ja3) {
+
         return validationService.validate(request)
                 .then(Mono.defer(() -> {
 
                     Transaction tx = Transaction.from(request);
-
                     Long sourceNodeId;
                     Long targetNodeId;
+
                     try {
                         sourceNodeId = Long.parseLong(tx.getSourceAccount());
                         targetNodeId = Long.parseLong(tx.getTargetAccount());
@@ -66,52 +65,46 @@ public class TransactionService {
                         return Mono.error(new IllegalArgumentException("Invalid node IDs", e));
                     }
 
-                    double amount    = tx.getAmount().doubleValue();
+                    double amount = tx.getAmount().doubleValue();
                     String sourceAcc = tx.getSourceAccount();
                     String targetAcc = tx.getTargetAccount();
-                    String deviceHash = "device-" + sourceAcc;
-                    String ip         = "127.0.0.1";
 
-                    // ── Step 2: Persist ─────────────────────────────────────
                     return repository.save(tx)
 
-                            // ── Step 3: Identity forensics ───────────────────
+                            // Step 3 — Identity forensics
                             .flatMap(savedTx ->
-                                    identityCollectorService.collect(savedTx, ja3, deviceHash, ip)
+                                    identityCollectorService.collect(
+                                            savedTx, ja3,
+                                            "device-" + savedTx.getSourceAccount(),
+                                            "127.0.0.1"
+                                    )
                             )
 
-                            // ── Step 4: Aggregates ────────────────────────────
+                            // Step 4 — Update aggregates + visual + node enrichment (parallel)
                             .flatMap(savedTx ->
-                                    aggregateUpdateService.update(
-                                            sourceAcc, targetAcc, amount,
-                                            savedTx.getTransactionId(),
-                                            ja3, deviceHash, ip
+                                    Mono.when(
+                                            aggregateUpdateService.update(
+                                                    sourceAcc, targetAcc, amount,
+                                                    savedTx.getTransactionId(),
+                                                    ja3,
+                                                    "device-" + sourceAcc,
+                                                    "127.0.0.1"
+                                            ),
+                                            nodeEnrichedService.handleOutgoing(sourceNodeId, amount),
+                                            nodeEnrichedService.handleIncoming(targetNodeId, amount),
+                                            visualAnalyticsService.triggerVisualMlPipeline(savedTx)
                                     ).thenReturn(savedTx)
                             )
 
-                            // ── Steps 5+6 in parallel ─────────────────────────
+                            // Steps 5+6 — Behavioral + Graph features (parallel)
                             .flatMap(savedTx ->
                                     Mono.zip(
-                                            // BehaviorFeatureService.compute(String accountId, double amount)
                                             behaviorFeatureService.compute(sourceAcc, amount),
-                                            // GraphFeatureService.compute(String accountId)
                                             graphFeatureService.compute(sourceAcc)
                                     ).flatMap(features -> {
 
                                         BehaviorFeaturesDTO behavior = features.getT1();
-                                        GraphFeaturesDTO    graph    = features.getT2();
-
-                                        // Build IdentityFeaturesDTO from Step 3 data
-                                        // Uses constructor: (int ja3Reuse, int deviceReuse, int ipReuse,
-                                        //                    boolean geoMismatch, boolean isNewDevice, boolean isNewJa3)
-                                        IdentityFeaturesDTO identity = new IdentityFeaturesDTO(
-                                                savedTx.getJa3ReuseCount()    != null ? savedTx.getJa3ReuseCount()    : 0,
-                                                savedTx.getDeviceReuseCount() != null ? savedTx.getDeviceReuseCount() : 0,
-                                                savedTx.getIpReuseCount()     != null ? savedTx.getIpReuseCount()     : 0,
-                                                false,
-                                                Boolean.TRUE.equals(savedTx.getIsNewDevice()),
-                                                Boolean.TRUE.equals(savedTx.getIsNewJa3())
-                                        );
+                                        GraphFeaturesDTO graph = features.getT2();
 
                                         System.out.printf("📦 ML PAYLOAD: account=%s velocity=%.1f burst=%.1f suspiciousNeighbors=%d%n",
                                                 sourceAcc,
@@ -119,103 +112,125 @@ public class TransactionService {
                                                 behavior.getBurstScore(),
                                                 graph.getSuspiciousNeighborCount());
 
-                                        // Node enrichment + visual (fire-and-forget)
-                                        Mono.when(
-                                                nodeEnrichedService.handleOutgoing(sourceNodeId, amount),
-                                                nodeEnrichedService.handleIncoming(targetNodeId, amount),
-                                                visualAnalyticsService.triggerVisualMlPipeline(savedTx)
-                                        ).subscribe();
+                                        // Step 7 — AI + JA3 in parallel
+                                        return Mono.zip(
+                                                aiRiskService.analyzeTransaction(sourceNodeId, targetNodeId, amount)
+                                                        .defaultIfEmpty(new AiRiskResult()),
+                                                ja3SecurityService.callJa3Risk(savedTx, ja3)
+                                                        .defaultIfEmpty(Map.of())
+                                        ).map(results -> {
 
-                                        // ── Step 7: AI engine call ────────────
-                                        return aiRiskService.analyzeTransaction(sourceNodeId, targetNodeId, amount,behavior,graph,identity)
-                                                .defaultIfEmpty(new AiRiskResult())
-                                                .doOnNext(aiResult -> {
-                                                    // Store GNN score so combineRiskSignals can read it
-                                                    savedTx.setRiskScore(aiResult.getRiskScore());
-                                                    savedTx.setUnsupervisedModelName(aiResult.getModelVersion());
-                                                    savedTx.setUnsupervisedScore(aiResult.getUnsupervisedScore());
-                                                    savedTx.setLinkedAccounts(aiResult.getLinkedAccounts());
-                                                })
-                                                .thenReturn(savedTx)
-                                                .flatMap(tx2 ->
-                                                        ja3SecurityService.callJa3Risk(tx2, ja3)
-                                                                .defaultIfEmpty(new HashMap<>())
-                                                                .doOnNext(ja3Result -> {
-                                                                    Object riskObj     = ja3Result.get("ja3Risk");
-                                                                    Object velocityObj = ja3Result.get("velocity");
-                                                                    Object fanoutObj   = ja3Result.get("fanout");
-                                                                    if (riskObj instanceof Number n) {
-                                                                        tx2.setJa3Risk(n.doubleValue());
-                                                                        tx2.setJa3Detected(n.doubleValue() > 0.7);
-                                                                    }
-                                                                    if (velocityObj instanceof Number n) tx2.setJa3Velocity(n.intValue());
-                                                                    if (fanoutObj   instanceof Number n) tx2.setJa3Fanout(n.intValue());
-                                                                })
-                                                                .thenReturn(tx2)
-                                                )
-                                                .flatMap(finalTx -> {
-                                                    combineRiskSignals(finalTx, behavior, graph);
-                                                    return repository.save(finalTx);
-                                                });
+                                            AiRiskResult aiResult = results.getT1();
+                                            Map ja3Result = results.getT2();
+
+                                            // Store AI results
+                                            savedTx.setRiskScore(aiResult.getGnnScore());
+                                            savedTx.setVerdict(aiResult.getVerdict());
+                                            savedTx.setSuspectedFraud(aiResult.isSuspectedFraud());
+                                            savedTx.setUnsupervisedModelName(aiResult.getModelVersion());
+                                            savedTx.setUnsupervisedScore(aiResult.getUnsupervisedScore());
+                                            savedTx.setLinkedAccounts(aiResult.getLinkedAccounts());
+                                            savedTx.setOutDegree(aiResult.getOutDegree());
+                                            savedTx.setRiskRatio(aiResult.getRiskRatio());
+
+                                            // Store NEW rich GNN fields on transaction
+                                            savedTx.setGnnScore(aiResult.getGnnScore());
+                                            savedTx.setGnnConfidence(aiResult.getConfidence());
+                                            savedTx.setRiskLevel(aiResult.getRiskLevel());
+                                            savedTx.setSuspiciousNeighbors(aiResult.getSuspiciousNeighbors());
+                                            savedTx.setSharedDevices(aiResult.getSharedDevices());
+                                            savedTx.setSharedIPs(aiResult.getSharedIPs());
+                                            savedTx.setClusterId(aiResult.getClusterId());
+                                            savedTx.setClusterSize(aiResult.getClusterSize());
+                                            savedTx.setMuleRingMember(aiResult.isMuleRingMember());
+                                            savedTx.setRingShape(aiResult.getRingShape());
+                                            savedTx.setRingSize(aiResult.getRingSize());
+                                            savedTx.setRole(aiResult.getRole());
+                                            savedTx.setHubAccount(aiResult.getHubAccount());
+                                            savedTx.setRingAccounts(aiResult.getRingAccounts());
+                                            savedTx.setRiskFactors(aiResult.getRiskFactors());
+                                            savedTx.setEmbeddingNorm(aiResult.getEmbeddingNorm());
+
+                                            // Store JA3 results
+                                            Object riskObj     = ja3Result.get("ja3Risk");
+                                            Object velocityObj = ja3Result.get("velocity");
+                                            Object fanoutObj   = ja3Result.get("fanout");
+                                            if (riskObj instanceof Number n) {
+                                                savedTx.setJa3Risk(n.doubleValue());
+                                                savedTx.setJa3Detected(n.doubleValue() > 0.7);
+                                            }
+                                            if (velocityObj instanceof Number n) savedTx.setJa3Velocity(n.intValue());
+                                            if (fanoutObj   instanceof Number n) savedTx.setJa3Fanout(n.intValue());
+
+                                            // Combine all signals
+                                            combineRiskSignals(savedTx, behavior, graph, aiResult);
+
+                                            return savedTx;
+                                        });
                                     })
-                            );
+                            )
+
+                            .flatMap(repository::save);
                 }));
     }
 
     private void combineRiskSignals(Transaction tx,
                                     BehaviorFeaturesDTO behavior,
-                                    GraphFeaturesDTO graph) {
+                                    GraphFeaturesDTO graph,
+                                    AiRiskResult aiResult) {
 
-        double gnnScore = tx.getRiskScore() == null ? 0.0 : tx.getRiskScore();
+        double gnnScore = tx.getGnnScore() == null ? 0.0 : tx.getGnnScore();
         double eifScore = tx.getUnsupervisedScore() == null ? 0.0 : tx.getUnsupervisedScore();
         double ja3Score = tx.getJa3Risk() == null ? 0.0 : tx.getJa3Risk();
 
         double velocity = behavior.getTransactionVelocityScore();
-        double burst = behavior.getBurstScore();
+        double burst    = behavior.getBurstScore();
+        double behaviorScore = Math.min(
+                velocity * 0.3 + burst * 0.5 + behavior.getAvgAmountDeviation() * 0.2,
+                1.0);
 
-        double behaviorScore =
-                velocity * 0.3 +
-                burst * 0.5 +
-                behavior.getAvgAmountDeviation() * 0.2;
+        double graphScore = Math.min(
+                graph.getConnectivityScore() * 0.6 + graph.getTwoHopFraudDensity() * 0.4,
+                1.0);
 
-        double graphScore =
-                graph.getConnectivityScore() * 0.6 +
-                graph.getTwoHopFraudDensity() * 0.4;
-
-
-
-        // ja3 security signal: base risk + velocity boost + fanout boost
+        // JA3 combined signal
         int ja3Velocity = tx.getJa3Velocity() == null ? 0 : tx.getJa3Velocity();
         int ja3Fanout   = tx.getJa3Fanout()   == null ? 0 : tx.getJa3Fanout();
-        double ja3VelocityBoost = ja3Velocity > 50 ? 0.2 : ja3Velocity > 20 ? 0.1 : 0.0;
-        double ja3FanoutBoost   = ja3Fanout   > 20 ? 0.2 : ja3Fanout   > 10 ? 0.1 : 0.0;
-        double ja3Combined = Math.min(ja3Score + ja3VelocityBoost + ja3FanoutBoost, 1.0);
+        double ja3VBoost = ja3Velocity > 50 ? 0.2 : ja3Velocity > 20 ? 0.1 : 0.0;
+        double ja3FBoost = ja3Fanout   > 20 ? 0.2 : ja3Fanout   > 10 ? 0.1 : 0.0;
+        double ja3Combined = Math.min(ja3Score + ja3VBoost + ja3FBoost, 1.0);
+
+        // Mule ring boost — if GNN detects ring membership, increase risk
+        double ringBoost = aiResult.isMuleRingMember() ? 0.15 : 0.0;
 
         double raw = 0.35 * gnnScore
-                + 0.10 * eifScore
-                + 0.30 * Math.min(behaviorScore, 1.0)
-                + 0.15 * Math.min(graphScore,    1.0)
-                + 0.10 * ja3Combined;
+                   + 0.10 * eifScore
+                   + 0.25 * behaviorScore
+                   + 0.15 * graphScore
+                   + 0.10 * ja3Combined
+                   + ringBoost;
 
-        // Round cleanly to 4 decimal places
-        double finalRisk = Math.round(raw * 10_000.0) / 10_000.0;
-        finalRisk = Math.max(0.0, Math.min(1.0, finalRisk));
+        double finalRisk = Math.round(Math.min(raw, 1.0) * 10_000.0) / 10_000.0;
 
-        System.out.printf("🔢 RISK COMBINE: gnn=%.4f behavior=%.2f graph=%.2f ja3=%.2f → FINAL=%.4f%n",
-                gnnScore, behaviorScore, graphScore, ja3Score, finalRisk);
+        System.out.printf("🔢 RISK COMBINE: gnn=%.4f eif=%.4f behavior=%.2f graph=%.2f ja3=%.2f ring=%b → FINAL=%.4f%n",
+                gnnScore, eifScore, behaviorScore, graphScore, ja3Combined,
+                aiResult.isMuleRingMember(), finalRisk);
 
         tx.setRiskScore(finalRisk);
-        tx.setSuspectedFraud(finalRisk > 0.6);
-        // 🔴 STORE COMPONENT SCORES
         tx.setGnnScore(gnnScore);
         tx.setBehaviorScore(behaviorScore);
         tx.setGraphScore(graphScore);
         tx.setVelocityScore(velocity);
         tx.setBurstScore(burst);
+        tx.setSuspectedFraud(finalRisk >= 0.45);
 
-        String verdict = finalRisk >= 0.75 ? "BLOCK" : finalRisk >= 0.45 ? "REVIEW" : "APPROVE";
-        tx.setVerdict(verdict);
+        // Decision
+        String decision;
+        if (finalRisk >= 0.75)      decision = "BLOCK";
+        else if (finalRisk >= 0.45) decision = "REVIEW";
+        else                         decision = "APPROVE";
+        tx.setDecision(decision);
 
-        System.out.printf("🛡️  DECISION = %s | score=%.4f%n", verdict, finalRisk);
+        System.out.printf("🛡️  DECISION = %s | score=%.4f%n", decision, finalRisk);
     }
 }
