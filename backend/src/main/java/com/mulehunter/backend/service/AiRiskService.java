@@ -18,15 +18,17 @@ import java.util.Map;
 public class AiRiskService {
 
     private final WebClient aiWebClient;
+    private final WebClient eifWebClient;
 
     public AiRiskService(
-            @Value("${ai.service.url:http://56.228.10.113:8001}") String aiServiceUrl
-    ) {
-        System.out.println("🔌 CONNECTING AI TO: " + aiServiceUrl);
-        this.aiWebClient = WebClient.builder()
-                .baseUrl(aiServiceUrl)
-                .build();
-    }
+        @Value("${ai.service.url:http://56.228.10.113:8001}") String aiServiceUrl,
+        @Value("${visual.service.url:http://16.170.208.158:8000}") String visualServiceUrl
+) {
+    System.out.println("🔌 CONNECTING AI TO: " + aiServiceUrl);
+    this.aiWebClient = WebClient.builder().baseUrl(aiServiceUrl).build();
+    System.out.println("🔬 CONNECTING EIF TO: " + visualServiceUrl);
+    this.eifWebClient = WebClient.builder().baseUrl(visualServiceUrl).build();
+}
 
     public Mono<AiRiskResult> analyzeTransaction(Long source, Long target, double amount) {
 
@@ -158,4 +160,32 @@ public class AiRiskService {
 
         return result;
     }
+
+    public Mono<Double> scoreEif(double totalIn24h, double totalOut24h,
+                              double velocityScore, double burstScore,
+                              double uniqueCounterparties7d, double avgAmountDeviation) {
+    Map<String, Object> payload = Map.of(
+            "features", java.util.List.of(
+                    totalIn24h, totalOut24h,
+                    velocityScore, burstScore,
+                    uniqueCounterparties7d, avgAmountDeviation
+            )
+    );
+    return eifWebClient.post()
+            .uri("/v1/eif/score")
+            .bodyValue(payload)
+            .retrieve()
+            .bodyToMono(JsonNode.class)
+            .map(r -> {
+                double score = r.path("score").asDouble(0.0);
+                System.out.printf("🔬 EIF RESULT → score=%.4f confidence=%.2f%n",
+                        score, r.path("confidence").asDouble(0.0));
+                return score;
+            })
+            .timeout(java.time.Duration.ofSeconds(5))
+            .onErrorResume(e -> {
+                System.err.println("⚠️ EIF skipped: " + e.getMessage());
+                return Mono.just(0.0);
+            });
+}
 }

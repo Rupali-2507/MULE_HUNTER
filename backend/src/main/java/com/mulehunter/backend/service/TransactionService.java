@@ -117,18 +117,27 @@ public class TransactionService {
                                                 aiRiskService.analyzeTransaction(sourceNodeId, targetNodeId, amount)
                                                         .defaultIfEmpty(new AiRiskResult()),
                                                 ja3SecurityService.callJa3Risk(savedTx, ja3)
-                                                        .defaultIfEmpty(Map.of())
+                                                        .defaultIfEmpty(Map.of()),
+                                                aiRiskService.scoreEif(
+                                                        behavior.getTotalIn24h(),
+                                                        behavior.getTotalOut24h(),
+                                                        behavior.getTransactionVelocityScore(),
+                                                        behavior.getBurstScore(),
+                                                        behavior.getUniqueCounterparties7d(),
+                                                        behavior.getAvgAmountDeviation()
+                                                )
                                         ).map(results -> {
-
-                                            AiRiskResult aiResult = results.getT1();
-                                            Map ja3Result = results.getT2();
+                                        AiRiskResult aiResult = results.getT1();
+                                        Map ja3Result = results.getT2();
+                                        double eifScore = results.getT3();
+                                        savedTx.setUnsupervisedScore(eifScore);
 
                                             // Store AI results
                                             savedTx.setRiskScore(aiResult.getGnnScore());
                                             savedTx.setVerdict(aiResult.getVerdict());
                                             savedTx.setSuspectedFraud(aiResult.isSuspectedFraud());
                                             savedTx.setUnsupervisedModelName(aiResult.getModelVersion());
-                                            savedTx.setUnsupervisedScore(aiResult.getUnsupervisedScore());
+                                            // EIF score set from real EIF service above
                                             savedTx.setLinkedAccounts(aiResult.getLinkedAccounts());
                                             savedTx.setOutDegree(aiResult.getOutDegree());
                                             savedTx.setRiskRatio(aiResult.getRiskRatio());
