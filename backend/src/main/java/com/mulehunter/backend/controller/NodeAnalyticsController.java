@@ -30,20 +30,22 @@ public class NodeAnalyticsController {
     }
 
     @GetMapping("/{nodeId}/full")
-    public Mono<NodeAnalyticsResponse> getFull(@PathVariable Long nodeId) {
+public Mono<NodeAnalyticsResponse> getFull(@PathVariable Long nodeId) {
 
-        return Mono.zip(
-                nodeRepo.findByNodeId(nodeId),
-                anomalyRepo.findByNodeId(nodeId).defaultIfEmpty(null),
-                shapRepo.findByNodeId(nodeId).collectList(),
-                fraudRepo.findByNodeId(nodeId).defaultIfEmpty(null)
-        ).map(t -> {
-            NodeAnalyticsResponse r = new NodeAnalyticsResponse();
-            r.setFeatures(t.getT1());
-            r.setAnomaly(t.getT2());
-            r.setShap(t.getT3());
-            r.setReasons(t.getT4());
-            return r;
-        });
-    }
+    return Mono.zip(
+            nodeRepo.findByNodeId(nodeId),
+            anomalyRepo.findByNodeId(nodeId).switchIfEmpty(Mono.empty()),
+            shapRepo.findByNodeId(nodeId).collectList(),
+            fraudRepo.findByNodeId(nodeId).switchIfEmpty(Mono.empty())
+    ).map(t -> {
+
+        NodeAnalyticsResponse r = new NodeAnalyticsResponse();
+        r.setFeatures(t.getT1());
+        r.setAnomaly(t.getT2());
+        r.setShap(t.getT3());
+        r.setReasons(t.getT4());
+
+        return r;
+    });
+}
 }
