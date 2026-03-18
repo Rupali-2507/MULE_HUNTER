@@ -92,7 +92,6 @@ const NavContent = ({ session, onLinkClick }: { session: any, onLinkClick?: () =
     <Link href="/network" onClick={onLinkClick} className="hover:text-[#CAFF33] transition-colors">Network</Link>
     <Link href="/stats" onClick={onLinkClick} className="hover:text-[#CAFF33] transition-colors">Stats</Link>
     <Link href="/service" onClick={onLinkClick} className="hover:text-[#CAFF33] transition-colors">Request Service</Link>
-    <Link href="/transaction" onClick={onLinkClick} className="hover:text-[#CAFF33] transition-colors">Transaction</Link>
     
     {session?.user?.role === "admin" && (
       <Link 

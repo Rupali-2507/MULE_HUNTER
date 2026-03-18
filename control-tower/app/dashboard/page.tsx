@@ -184,18 +184,99 @@ function Field({label,k,form,setForm}:{label:string;k:string;form:Record<string,
 function SimulatorSection() {
   const [form,setForm]=useState({sid:"ACC1553",did:"ACC899",amt:"2077",ccy:"INR",ip:"49.204.11.92",ja3:"771,4866-4867-4865,...",dev:"device_8s7df6",nb:"4",hd:"0.47"});
   const [step,setStep]=useState(0);
-  const [result,setResult]=useState<typeof MOCK|null>(null);
+  const [result,setResult]=useState<any>(null);
   const [loading,setLoading]=useState(false);
   const [tab,setTab]=useState("Overview");
 
-  const run=async()=>{
-    setResult(null);setLoading(true);setStep(0);
-    const dl=[80,80,80,80,80,80,80,220,80,80,80,80,300,120];
-    for(let i=0;i<14;i++){setStep(i+1);await new Promise(r=>setTimeout(r,dl[i]));}
-    try{const res=await fetch("/api/spring/v1/gnn/score",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({accountId:form.sid,graphFeatures:{suspiciousNeighborCount:+form.nb,twoHopFraudDensity:+form.hd}})});setResult({...MOCK,...await res.json()});}
-    catch{setResult(MOCK);}
-    setStep(15);setLoading(false);
-  };
+  const run = async () => {
+  setResult(null);
+  setLoading(true);
+  setStep(0);
+
+  const dl = [80,80,80,80,80,80,80,220,80,80,80,80,300,120];
+  for (let i = 0; i < 14; i++) {
+    setStep(i + 1);
+    await new Promise(r => setTimeout(r, dl[i]));
+  }
+
+  try {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/transactions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-JA3-Fingerprint": form.ja3,
+      },
+      body: JSON.stringify({
+        transactionId: crypto.randomUUID(),
+        sourceAccount: form.sid,
+        targetAccount: form.did,
+        amount: Number(form.amt),
+      })
+    });
+
+    console.log("SENDING BODY:", {
+      transactionId: crypto.randomUUID(),
+      sourceAccount: form.sid,
+      targetAccount: form.did,
+      amount: Number(form.amt),
+      currency: form.ccy,
+      ipAddress: form.ip,
+      deviceId: form.dev,
+      ja3: form.ja3,
+    });
+
+    const text = await res.text();
+    console.log("RAW RESPONSE:", text);
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error("Invalid JSON from backend");
+    }
+
+    setResult({
+      gnnScore: data.modelScores?.gnn ?? 0,
+      eifScore: data.modelScores?.eif ?? 0,
+      eifConfidence: data.modelScores?.confidence ?? 0,
+
+      fusionScore: data.riskScore ?? 0,
+      decision: data.decision ?? "REVIEW",
+      latency_ms: 40,
+
+      fraudClusterId: data.fraudCluster?.clusterId ?? 0,
+      embeddingNorm: data.embeddingNorm ?? 0,
+
+      shapValues: data.modelScores?.eifTopFactors ?? {},
+      identityFeatures: data.ja3Security ?? {},
+
+      modelBreakdown: {
+        gnn: data.modelScores?.gnn ?? 0,
+        eif: data.modelScores?.eif ?? 0,
+        identity: data.modelScores?.behavior ?? 0,
+      },
+
+      muleRingDetection: data.muleRingDetection ?? {
+        isMuleRingMember: false
+      },
+
+      networkMetrics: data.networkMetrics ?? {
+        suspiciousNeighbors: 0,
+        centralityScore: 0,
+        transactionLoops: false,
+      },
+
+      riskFactors: data.riskFactors ?? [],
+    });
+
+  } catch (err) {
+    console.error(err);
+    alert("Backend not reachable");
+  }
+
+  setStep(15); 
+  setLoading(false);
+};
 
   return (
     <div className="grid grid-cols-[270px_1fr_210px] gap-5 h-full">
@@ -297,7 +378,7 @@ function SimulatorSection() {
                   <div>
                     <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-white/20 mb-4">Risk Signals</p>
                     <div className="space-y-2">
-                      {result.riskFactors.map((f,i)=>(
+                      {result.riskFactors.map((f: any,i: any)=>(
                         <div key={i} className="flex gap-3 p-3.5 rounded-xl bg-red-500/[0.03] border border-red-500/10 text-sm text-white/40 leading-relaxed">
                           <span className="text-red-500/60 shrink-0 mt-0.5 text-xs">▲</span>{f}
                         </div>
