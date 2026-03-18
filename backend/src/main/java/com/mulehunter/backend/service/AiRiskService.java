@@ -161,7 +161,7 @@ public class AiRiskService {
         return result;
     }
 
-    public Mono<Double> scoreEif(double totalIn24h, double totalOut24h,
+    public Mono<Map<String, Object>> scoreEif(double totalIn24h, double totalOut24h,
                               double velocityScore, double burstScore,
                               double uniqueCounterparties7d, double avgAmountDeviation) {
     Map<String, Object> payload = Map.of(
@@ -178,14 +178,29 @@ public class AiRiskService {
             .bodyToMono(JsonNode.class)
             .map(r -> {
                 double score = r.path("score").asDouble(0.0);
-                System.out.printf("🔬 EIF RESULT → score=%.4f confidence=%.2f%n",
-                        score, r.path("confidence").asDouble(0.0));
-                return score;
+                String explanation = r.path("explanation").asText("");
+
+                // Extract topFactors
+                Map<String, Double> topFactors = new java.util.LinkedHashMap<>();
+                if (r.has("topFactors")) {
+                    r.get("topFactors").fields().forEachRemaining(e ->
+                            topFactors.put(e.getKey(), e.getValue().asDouble()));
+                }
+
+                System.out.printf("🔬 EIF RESULT → score=%.4f | %s%n", score, explanation);
+
+                return (Map<String, Object>) new java.util.LinkedHashMap<String, Object>() {{
+                    put("score", score);
+                    put("confidence", r.path("confidence").asDouble(0.0));
+                    put("explanation", explanation);
+                    put("topFactors", topFactors);
+                }};
             })
             .timeout(java.time.Duration.ofSeconds(5))
             .onErrorResume(e -> {
                 System.err.println("⚠️ EIF skipped: " + e.getMessage());
-                return Mono.just(0.0);
+                return Mono.just(Map.of("score", 0.0, "explanation", "", "topFactors", Map.of()));
             });
+
 }
 }

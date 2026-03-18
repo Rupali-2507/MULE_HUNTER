@@ -129,8 +129,12 @@ public class TransactionService {
                                         ).map(results -> {
                                         AiRiskResult aiResult = results.getT1();
                                         Map ja3Result = results.getT2();
-                                        double eifScore = results.getT3();
+                                        Map<String, Object> eifResult = results.getT3();
+                                        double eifScore = eifResult.get("score") instanceof Number n ? n.doubleValue() : 0.0;
+                                        String eifExplanation = (String) eifResult.getOrDefault("explanation", "");
                                         savedTx.setUnsupervisedScore(eifScore);
+                                        savedTx.setEifExplanation(eifExplanation);
+                                        savedTx.setEifTopFactors((Map<String, Double>) eifResult.getOrDefault("topFactors", Map.of()));
 
                                             // Store AI results
                                             savedTx.setRiskScore(aiResult.getGnnScore());

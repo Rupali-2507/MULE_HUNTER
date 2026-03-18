@@ -61,7 +61,9 @@ public class TransactionController {
         scores.put("behavior", tx.getBehaviorScore());
         scores.put("graph",    tx.getGraphScore());
         scores.put("ja3",      tx.getJa3Risk());
-        scores.put("confidence", tx.getGnnConfidence());
+        scores.put("confidence",      tx.getGnnConfidence());
+        scores.put("eifExplanation",  tx.getEifExplanation());
+        scores.put("eifTopFactors",   tx.getEifTopFactors());
         resp.put("modelScores", scores);
 
         // ── Network metrics ───────────────────────────────────────

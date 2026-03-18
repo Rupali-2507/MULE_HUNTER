@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
@@ -71,6 +72,8 @@ public class Transaction {
     // risk factors & embedding
     private List<String> riskFactors = new ArrayList<>();
     private Double embeddingNorm;
+    private String eifExplanation;
+    private Map<String, Double> eifTopFactors = new java.util.LinkedHashMap<>();
 
     // ── Risk combine component scores ─────────────────────────────
     private Double behaviorScore;
@@ -265,4 +268,10 @@ public class Transaction {
 
     public Boolean getIsNewJa3() { return isNewJa3; }
     public void setIsNewJa3(Boolean v) { this.isNewJa3 = v; }
+
+    public String getEifExplanation() { return eifExplanation; }
+    public void setEifExplanation(String v) { this.eifExplanation = v; }
+
+    public Map<String, Double> getEifTopFactors() { return eifTopFactors; }
+    public void setEifTopFactors(Map<String, Double> v) { this.eifTopFactors = v; }
 }
