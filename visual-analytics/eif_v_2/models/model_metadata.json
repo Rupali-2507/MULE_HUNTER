@@ -1,14 +1,29 @@
 {
   "model": "EIF",
-  "version": "v3",
-  "feature_dim": 6,
-  "threshold": 0.0,
-  "features": [
+  "version": "v4",
+  "raw_feature_dim": 6,
+  "expanded_feature_dim": 12,
+  "threshold": 0.577088441130882,
+  "raw_features": [
     "velocity_score",
     "burst_score",
     "suspicious_neighbor_count",
     "ja3_reuse_count",
     "device_reuse_count",
     "ip_reuse_count"
+  ],
+  "expanded_features": [
+    "velocity",
+    "burst",
+    "neighbors",
+    "ja3",
+    "device",
+    "ip",
+    "infra_risk",
+    "velocity_burst",
+    "neighbor_velocity",
+    "device_ip",
+    "ja3_weighted",
+    "burst_neighbor"
   ]
 }

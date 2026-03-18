@@ -5,4 +5,5 @@ pandas
 numpy
 joblib
 pydantic
-shap
+
+eif

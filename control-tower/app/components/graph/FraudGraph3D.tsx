@@ -409,7 +409,7 @@ export default function FraudGraph3D({
       </div>
 
       
-      <div className="absolute bottom-8 left-6 z-20 flex flex-col gap-3">
+      <div className="absolute bottom-20 left-6 z-20 flex flex-col gap-3">
         {[{ label: "+", fn: handleZoomIn }, { label: "−", fn: handleZoomOut }].map(
           ({ label, fn }) => (
             <button
@@ -448,7 +448,12 @@ export default function FraudGraph3D({
         onNodeClick={handleNodeClick}
         onEngineStop={() => {
           if (!hasFitted.current) {
-            fgRef.current?.zoomToFit(400);
+            const center = { x: 0, y: 0, z: 0 };
+            fgRef.current.cameraPosition(
+              { x: center.x, y: center.y, z: 200 },
+              center,
+              1000
+            );
             hasFitted.current = true;
           }
         }}

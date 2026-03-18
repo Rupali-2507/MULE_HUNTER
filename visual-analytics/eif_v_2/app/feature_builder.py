@@ -17,17 +17,19 @@ def build_feature_vector(req):
 
     b = req.behaviorFeatures
     i = req.identityFeatures
+    n = req.networkFeatures
+
+    fan_out_risk = b.uniqueCounterparties7d * b.velocityScore
 
     return [
-        req.transactionAmount,
-        b.totalIn24h,
-        b.totalOut24h,
-        b.velocityScore,
-        b.burstScore,
-        b.uniqueCounterparties7d,
-        b.avgAmountDeviation,
-        i.ja3ReuseCount,
-        i.deviceReuseCount,
-        i.ipReuseCount,
-        int(i.geoMismatch)
+        req.transactionAmount,        # transaction magnitude
+        b.velocityScore,              # abnormal activity speed
+        b.burstScore,                 # sudden burst behavior
+        b.uniqueCounterparties7d,     # spreading to many accounts
+        fan_out_risk,                 # laundering spread pattern
+        i.deviceReuseCount,           # shared device infrastructure
+        i.ipReuseCount,               # shared IP infrastructure
+        i.ja3ReuseCount,              # TLS fingerprint reuse
+        n.networkRiskScore,           # fraud cluster influence
+        int(i.geoMismatch)            # location anomaly
     ]

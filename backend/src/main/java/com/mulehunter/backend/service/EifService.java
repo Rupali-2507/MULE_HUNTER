@@ -17,7 +17,7 @@ public class EifService {
 
     public EifService(WebClient.Builder builder) {
         this.webClient = builder
-                .baseUrl("http://16.170.208.158:8000")   // change to AWS later
+                .baseUrl("http://127.0.0.1:8002")   // change to AWS later
                 .build();
     }
     public Mono<EifResponse> score(List<Double> features) {
