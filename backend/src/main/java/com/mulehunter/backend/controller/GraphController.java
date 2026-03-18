@@ -62,7 +62,7 @@ public class GraphController {
                                 .onErrorReturn(List.of());
 
                 // ---------- LINKS ----------
-                Mono<List<GraphLinkDTO>> linksMono = mongo.findAll(Map.class, "transactions")
+                Mono<List<GraphLinkDTO>> linksMono = mongo.findAll(Map.class, "graph_edges")
                                 .map(doc -> {
 
                                         Object srcObj = doc.get("source");
