@@ -4,8 +4,8 @@ import joblib
 import json
 from pathlib import Path
 
-from sklearn.ensemble import IsolationForest
-from sklearn.preprocessing import StandardScaler
+from eif import iForest
+from sklearn.preprocessing import RobustScaler
 from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
 
 
@@ -18,23 +18,76 @@ BASE_DIR = Path(__file__).resolve().parents[3]
 DATA_PATH = BASE_DIR / "shared-data" / "eif_features.csv"
 MODEL_DIR = BASE_DIR / "visual-analytics" / "eif_v_2" / "models"
 
-MODEL_PATH = MODEL_DIR / "eif_model.pkl"
 SCALER_PATH = MODEL_DIR / "eif_scaler.pkl"
+TRAIN_DATA_PATH = MODEL_DIR / "eif_training_data.npy"
 EVAL_PATH = MODEL_DIR / "eif_eval.json"
 META_PATH = MODEL_DIR / "model_metadata.json"
 
 
 # ---------------------------------------------------
-# FEATURES
+# RAW FEATURES (FROM BACKEND)
 # ---------------------------------------------------
 
-FEATURES = [
+RAW_FEATURES = [
     "velocity_score",
     "burst_score",
     "suspicious_neighbor_count",
     "ja3_reuse_count",
     "device_reuse_count",
     "ip_reuse_count"
+]
+
+
+# ---------------------------------------------------
+# FEATURE EXPANSION
+# (MUST MATCH INFERENCE)
+# ---------------------------------------------------
+
+def expand_features(row):
+
+    velocity = row["velocity_score"]
+    burst = row["burst_score"]
+    neighbors = row["suspicious_neighbor_count"]
+    ja3 = row["ja3_reuse_count"]
+    device = row["device_reuse_count"]
+    ip = row["ip_reuse_count"]
+
+    infra_risk = ja3 + device + ip
+    velocity_burst = velocity * burst
+    neighbor_velocity = neighbors * velocity
+    device_ip = device * ip
+    ja3_weighted = 0.6 * ja3 + 0.25 * device + 0.15 * ip
+    burst_neighbor = burst * neighbors
+
+    return [
+        velocity,
+        burst,
+        neighbors,
+        ja3,
+        device,
+        ip,
+        infra_risk,
+        velocity_burst,
+        neighbor_velocity,
+        device_ip,
+        ja3_weighted,
+        burst_neighbor
+    ]
+
+
+FEATURE_NAMES = [
+    "velocity",
+    "burst",
+    "neighbors",
+    "ja3",
+    "device",
+    "ip",
+    "infra_risk",
+    "velocity_burst",
+    "neighbor_velocity",
+    "device_ip",
+    "ja3_weighted",
+    "burst_neighbor"
 ]
 
 
@@ -50,67 +103,74 @@ print("📂 Loading dataset:", DATA_PATH)
 df = pd.read_csv(DATA_PATH)
 
 print("Dataset shape:", df.shape)
-print("Columns:", list(df.columns))
 
 
 # ---------------------------------------------------
 # VALIDATE FEATURES
 # ---------------------------------------------------
 
-missing = [f for f in FEATURES if f not in df.columns]
+missing = [f for f in RAW_FEATURES if f not in df.columns]
 
 if missing:
-    raise ValueError(f"❌ Missing features: {missing}")
+    raise ValueError(f"Missing features: {missing}")
 
 print("✅ All required features present")
 
 
 # ---------------------------------------------------
-# EXTRACT FEATURES
+# CLEAN DATA
 # ---------------------------------------------------
 
-X = df[FEATURES].values
+df = df.replace([np.inf, -np.inf], np.nan)
+df = df.fillna(0)
+
+
+# ---------------------------------------------------
+# FEATURE EXPANSION
+# ---------------------------------------------------
+
+print("\n⚙️ Expanding features")
+
+expanded = df.apply(expand_features, axis=1, result_type="expand")
+expanded.columns = FEATURE_NAMES
+
+X = expanded.values
 
 y = df["is_fraud"].values if "is_fraud" in df.columns else None
 
-
-print("\n🔎 Feature statistics")
-
-for f in FEATURES:
-    print(f"{f:30} min={df[f].min():.4f} max={df[f].max():.4f} mean={df[f].mean():.4f}")
+print("Expanded feature dimension:", X.shape)
 
 
 # ---------------------------------------------------
 # SCALE FEATURES
 # ---------------------------------------------------
 
-print("\n⚙️ Scaling features")
+print("\n⚙️ Applying RobustScaler")
 
-scaler = StandardScaler()
+scaler = RobustScaler()
+
 X_scaled = scaler.fit_transform(X)
 
 
 # ---------------------------------------------------
-# TRAIN MODEL
+# TRAIN EIF
 # ---------------------------------------------------
 
-print("\n🧠 Training Isolation Forest")
+print("\n🧠 Training Extended Isolation Forest")
 
-model = IsolationForest(
-    n_estimators=400,
-    contamination=0.05,
-    random_state=42,
-    n_jobs=-1
+model = iForest(
+    X_scaled,
+    ntrees=500,
+    sample_size=min(256, len(X_scaled)),
+    ExtensionLevel=1
 )
-
-model.fit(X_scaled)
 
 
 # ---------------------------------------------------
 # COMPUTE ANOMALY SCORES
 # ---------------------------------------------------
 
-scores = -model.decision_function(X_scaled)
+scores = np.array(model.compute_paths(X_scaled))
 
 print("\n📊 Score statistics")
 
@@ -125,20 +185,21 @@ print("mean:", scores.mean())
 
 threshold = np.percentile(scores, 95)
 
-print("\n🎯 Computed anomaly threshold:", threshold)
+print("\n🎯 Anomaly threshold:", threshold)
 
 
 # ---------------------------------------------------
-# SAVE MODEL
+# SAVE ARTIFACTS
 # ---------------------------------------------------
 
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
-joblib.dump(model, MODEL_PATH)
 joblib.dump(scaler, SCALER_PATH)
 
-print("\n💾 Model saved:", MODEL_PATH)
-print("💾 Scaler saved:", SCALER_PATH)
+np.save(TRAIN_DATA_PATH, X_scaled)
+
+print("\n💾 Scaler saved:", SCALER_PATH)
+print("💾 Training data saved:", TRAIN_DATA_PATH)
 
 
 # ---------------------------------------------------
@@ -170,10 +231,10 @@ if y is not None:
         json.dump(metrics, f, indent=2)
 
     print("\n📊 Evaluation Metrics")
-    print("F1 Score   :", f1)
-    print("Precision  :", precision)
-    print("Recall     :", recall)
-    print("ROC AUC    :", auc)
+    print("F1:", f1)
+    print("Precision:", precision)
+    print("Recall:", recall)
+    print("AUC:", auc)
 
 else:
 
@@ -188,10 +249,12 @@ else:
 
 metadata = {
     "model": "EIF",
-    "version": "v3",
-    "feature_dim": len(FEATURES),
+    "version": "v4",
+    "raw_feature_dim": len(RAW_FEATURES),
+    "expanded_feature_dim": len(FEATURE_NAMES),
     "threshold": float(threshold),
-    "features": FEATURES
+    "raw_features": RAW_FEATURES,
+    "expanded_features": FEATURE_NAMES
 }
 
 with open(META_PATH, "w") as f:
@@ -201,13 +264,12 @@ print("\n📦 Metadata saved:", META_PATH)
 
 
 # ---------------------------------------------------
-# DEBUG SAMPLE SCORES
+# DEBUG SAMPLE
 # ---------------------------------------------------
 
 print("\n🔬 Sample anomaly scores")
 
 for i in range(5):
     print(f"sample {i}: score={scores[i]:.4f}")
-
 
 print("\n✅ EIF Training Complete\n")
