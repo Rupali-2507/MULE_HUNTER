@@ -12,7 +12,9 @@ import org.springframework.data.mongodb.core.mapping.Field;
 import org.springframework.data.mongodb.core.mapping.FieldType;
 import org.springframework.data.mongodb.core.index.Indexed;
 
-@Document(collection = "newtransactions")
+
+
+@Document(collection = "transactions")
 public class Transaction {
 
     @Id
@@ -93,6 +95,12 @@ public class Transaction {
     private Integer ipReuseCount;
     private Boolean isNewDevice;
     private Boolean isNewJa3;
+
+    private Map<String, Object> modelScores;
+    private Map<String, Object> networkMetrics;
+    private Map<String, Object> fraudCluster;
+    private Map<String, Object> muleRingDetection;
+    private Map<String, Object> ja3Security;
 
     public Transaction() {}
 
@@ -274,4 +282,19 @@ public class Transaction {
 
     public Map<String, Double> getEifTopFactors() { return eifTopFactors; }
     public void setEifTopFactors(Map<String, Double> v) { this.eifTopFactors = v; }
+
+    public Map<String, Object> getModelScores() { return modelScores; }
+public void setModelScores(Map<String, Object> v) { this.modelScores = v; }
+
+public Map<String, Object> getNetworkMetrics() { return networkMetrics; }
+public void setNetworkMetrics(Map<String, Object> v) { this.networkMetrics = v; }
+
+public Map<String, Object> getFraudCluster() { return fraudCluster; }
+public void setFraudCluster(Map<String, Object> v) { this.fraudCluster = v; }
+
+public Map<String, Object> getMuleRingDetection() { return muleRingDetection; }
+public void setMuleRingDetection(Map<String, Object> v) { this.muleRingDetection = v; }
+
+public Map<String, Object> getJa3Security() { return ja3Security; }
+public void setJa3Security(Map<String, Object> v) { this.ja3Security = v; }
 }
