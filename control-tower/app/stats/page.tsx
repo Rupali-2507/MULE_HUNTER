@@ -1,20 +1,42 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
 import { Activity, ShieldAlert, RefreshCw, Hammer, Zap, TrendingUp, Info, Cpu, Gauge, Layers } from "lucide-react";
 
+
 export default function StatsPage() {
+
+  const [stats, setStats] = useState<any>(null);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+        try {
+          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/stats`);
+          const data = await res.json();
+          setStats(data);
+        } catch (err) {
+          console.error("Error fetching stats:", err);
+        }
+    };
+
+    fetchStats();
+  }, []);
+
+  if (!stats) {
+    if (!stats) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-black text-white">
+          <div className="text-lg font-semibold animate-pulse">
+            Loading...
+          </div>
+        </div>
+      );
+    }
+  }
   return (
     <div className="bg-black text-white min-h-screen flex flex-col">
-      {/* PSEUDO PAGE WARNING BANNER */}
-      <div className="bg-[#CAFF33]/10 border-b border-[#CAFF33]/20 py-2 flex justify-center items-center gap-2">
-        <Info className="w-3 h-3 text-[#CAFF33]" />
-        <span className="text-[10px] uppercase tracking-[0.2em] font-bold text-[#CAFF33]">
-          Simulation Mode Active: Displaying Synthetic Network Metrics for Demonstration
-        </span>
-      </div>
 
       <Navbar />
 
@@ -25,30 +47,31 @@ export default function StatsPage() {
           <StatCard 
             icon={<Zap className="text-[#CAFF33] w-5 h-5" />} 
             label="Throughput" 
-            value="14,208" 
+            value={Number(stats.throughputTps).toLocaleString()} 
             unit="TPS" 
             subValue="+12% vs last hour" 
           />
           <StatCard 
             icon={<Gauge className="text-[#CAFF33] w-5 h-5" />} 
             label="Avg Detection Latency" 
-            value="140" 
+            value={stats.avgDetectionLatencyMs} 
             unit="ms" 
             subValue="Real-time Interception" 
           />
           <StatCard 
             icon={<ShieldAlert className="text-red-500 w-5 h-5" />} 
             label="Mule Accounts Blocked" 
-            value="3,842" 
+            value={Number(stats.muleAccountsBlocked).toLocaleString()} 
             unit="Total" 
-            subValue="89 detected today" 
+            subValue={`${stats.muleAccountsBlockedToday} today`}  
           />
+
           <StatCard 
             icon={<Layers className="text-blue-400 w-5 h-5" />} 
             label="System Scalability" 
-            value="12.5M" 
+            value={Number(stats.systemScalabilityTxDay).toLocaleString()} 
             unit="TX/Day" 
-            subValue="Peak Capacity: 25M" 
+            subValue={`Peak: ${Number(stats.maxScalabilityMDay).toLocaleString()}`} 
           />
         </div>
 
@@ -69,9 +92,9 @@ export default function StatsPage() {
               <div className="border border-gray-900 p-6 rounded-3xl bg-[#050505]">
                 <h3 className="text-xs font-bold text-gray-400 uppercase mb-4 tracking-widest">Enforcement Distribution</h3>
                 <div className="space-y-4">
-                  <ProgressBar label="Accounts Frozen" percentage={65} color="bg-[#CAFF33]" />
-                  <ProgressBar label="Flagged for Review" percentage={22} color="bg-yellow-500" />
-                  <ProgressBar label="Police Referrals" percentage={13} color="bg-red-500" />
+                  <ProgressBar label="Accounts Frozen" percentage={stats.accountsFrozenPct}   color="bg-[#CAFF33]" />
+                  <ProgressBar label="Flagged for Review" percentage={stats.flaggedForReviewPct}  color="bg-yellow-500" />
+                  <ProgressBar label="Police Referrals" percentage={stats.policeReferralsPct}  color="bg-red-500" />
                 </div>
               </div>
 
@@ -81,9 +104,9 @@ export default function StatsPage() {
                   <TrendingUp className="text-[#CAFF33] w-4 h-4" />
                   <span className="text-xs font-bold uppercase text-gray-400">Detection Accuracy</span>
                 </div>
-                <div className="text-4xl font-bold">99.4%</div>
+                <div className="text-4xl font-bold">{(stats.detectionAccuracy * 100).toFixed(2)}%</div>
                 <div className="text-[10px] text-gray-600 mt-2 uppercase tracking-tighter">
-                   Target Variance: &lt; 0.5% | False Positive Rate: 0.02%
+                     Target Variance: &lt; {stats.targetVariance} | False Positive Rate: {(stats.falsePositiveRate * 100).toFixed(2)}%
                 </div>
               </div>
             </div>
@@ -95,9 +118,15 @@ export default function StatsPage() {
                 <span className="text-[#CAFF33] animate-pulse">Processing 1M+ Clusters</span>
               </div>
               <div className="p-4 space-y-3">
-                <LogItem time="14:02:11" msg="Circular flow detected - 142ms latency" node="ID_0421" risk="CRITICAL" />
-                <LogItem time="13:58:45" msg="Mule ring path analysis complete" node="ID_8821" risk="HIGH" />
-                <LogItem time="13:55:02" msg="Scalability stress test: 2.1M tx/hr" node="SYSTEM" risk="STABLE" />
+                 {stats.liveEvents.map((event: any, i: number) => (
+                  <LogItem
+                    key={i}
+                    time={event.time}
+                    msg={event.message}
+                    node={event.accountId}
+                    risk={event.severity}
+                  />
+                ))}
               </div>
             </div>
           </div>
@@ -113,11 +142,11 @@ export default function StatsPage() {
               </h3>
               
               <div className="space-y-6 relative z-10">
-                <MetricRow label="Value Intercepted" value="₹4.2 Cr" />
-                <MetricRow label="Avg Detection Latency" value="140ms" />
-                <MetricRow label="False Positive Rate" value="0.02%" />
-                <MetricRow label="Millions of Transactions" value="2.4M" />
-                <MetricRow label="Max Scalability" value="25M/Day" />
+                <MetricRow label="Value Intercepted" value={`₹${stats.valueInterceptedCrores} Cr`} />
+                <MetricRow label="Avg Detection Latency" value={`${stats.avgDetectionLatencyMs} ms`} />
+                <MetricRow label="False Positive Rate" value={`${(stats.falsePositiveRate * 100).toFixed(2)}%`} />
+                <MetricRow label="Millions of Transactions" value={stats.millionsOfTransactions} />
+                <MetricRow label="Max Scalability" value={`${Number(stats.maxScalabilityMDay).toLocaleString()}M/Day`}  />
               </div>
 
               <div className="mt-4 p-4 bg-[#CAFF33]/10 border border-[#CAFF33]/20 rounded-2xl relative z-10">
