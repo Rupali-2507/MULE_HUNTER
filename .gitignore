@@ -41,6 +41,7 @@ shared-data/*.json
 # Allow required AI graph files
 !shared-data/nodes.csv
 !shared-data/transactions.csv
+!shared-data/eif_features.csv
 
 mule-va
 mule-ai
