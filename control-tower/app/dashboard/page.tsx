@@ -1108,7 +1108,7 @@ function FusionSection() {
         <div className={`w-2 h-2 rounded-full shrink-0 ${hasLive ? "bg-[#CAFF33]" : "bg-white/30"}`}
           style={hasLive ? { boxShadow: "0 0 8px #CAFF33" } : {}} />
         <p className={`text-sm font-medium ${hasLive ? "text-[#CAFF33]/80" : "text-white/65"}`}>
-          {hasLive ? "Showing live scores from the last scored transaction." : "Illustrative values — score a transaction in Simulator for real fusion breakdown."}
+          {hasLive ? "Showing live scores" : "Illustrative values — score a transaction in Simulator for real fusion breakdown."}
         </p>
         {hasLive && <div className={`ml-auto px-4 py-1.5 rounded-xl border text-sm font-black ${dc(decision)}`}>{decision}</div>}
       </div>
