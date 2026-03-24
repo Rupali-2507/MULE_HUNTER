@@ -55,10 +55,15 @@ public class SecurityController {
         JA3RiskResult result = botService.evaluate(ja3, requestBody.accountId);
 
         Map<String, Object> response = new HashMap<>();
+        boolean isBlocked = result.ja3Risk > 0.8;
+
         response.put("ja3", ja3);
         response.put("ja3Risk", result.ja3Risk);
         response.put("velocity", result.velocity);
         response.put("fanout", result.fanout);
+
+        response.put("blocked", isBlocked);
+        response.put("action", isBlocked ? "BLOCK_REQUEST" : "ALLOW");
         return response;
     }
 
@@ -95,6 +100,15 @@ public class SecurityController {
         JA3RiskResult botResult = botService.evaluate(ja3, req.accountId);
 
         // Step 4 — Build response matching architecture doc exactly
+
+        double finalRisk = (
+        botResult.ja3Risk * 0.4 +
+        forensics.ja3ReuseCount * 0.2 +
+        forensics.deviceReuseCount * 0.2 +
+        (forensics.geoMismatch ? 0.2 : 0)
+        );
+
+        String decision = finalRisk > 0.7 ? "BLOCK" : "ALLOW";
         Map<String, Object> identityFeatures = new LinkedHashMap<>();
         identityFeatures.put("ja3ReuseCount",    forensics.ja3ReuseCount);
         identityFeatures.put("deviceReuseCount", forensics.deviceReuseCount);
@@ -117,10 +131,32 @@ public class SecurityController {
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("identityFeatures", identityFeatures);
         response.put("identityMetadata", identityMetadata);
+        response.put("finalRisk", finalRisk);
+        response.put("decision", decision);
+
+        boolean geoBlocked = forensics.geoMismatch && botResult.ja3Risk > 0.6;
+        response.put("geoBlocked", geoBlocked);
 
         System.out.println("✅ IDENTITY FORENSICS DONE: ja3Reuse=" + forensics.ja3ReuseCount
                 + " deviceReuse=" + forensics.deviceReuseCount
                 + " geoMismatch=" + forensics.geoMismatch);
+
+        // ───────────────── AUTO LOG TO BLOCKCHAIN ─────────────────
+        if (!decision.equals("ALLOW")) {
+            FraudLog log = new FraudLog(
+                    req.transactionId != null ? req.transactionId : UUID.randomUUID().toString(),
+                    req.accountId,
+                    0.0, // amount unknown here
+                    finalRisk,
+                    decision,
+                    "mock-eif-v1",
+                    "mock-gnn-v1"
+            );
+
+            blockchain.addLog(log);
+
+            System.out.println("📦 AUTO-LOGGED TO BLOCKCHAIN: " + log.txId);
+        }
 
         return response;
     }
@@ -154,6 +190,36 @@ public class SecurityController {
         response.put("pendingLogs", blockchain.getPendingCount());
         response.put("totalBlocks", blockchain.chain.size());
         response.put("decisionHash", log.decisionHash);
+        return response;
+    }
+
+
+    @PostMapping("/blockchain/tamper")
+    public Map<String, Object> tamperChain() {
+        if (blockchain.chain.size() > 1) {
+            Block block = blockchain.chain.get(1);
+
+            if (!block.logs.isEmpty()) {
+                block.logs.get(0).decision = "HACKED"; // simulate tampering
+            }
+        }
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "tampered");
+        return response;
+    }
+
+    @PostMapping("/simulate-attack")
+    public Map<String, Object> simulateAttack() {
+        String fakeJA3 = "botnet-script";
+
+        for (int i = 0; i < 50; i++) {
+            botService.evaluate(fakeJA3, "acc_" + i);
+        }
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "attack simulated");
+        response.put("ja3", fakeJA3);
         return response;
     }
 

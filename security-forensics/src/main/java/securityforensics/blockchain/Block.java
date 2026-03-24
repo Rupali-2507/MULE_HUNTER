@@ -41,9 +41,18 @@ public class Block {
 
     // ── Tamper verification ───────────────────────────────────────
     public boolean isValid() {
-        String recomputed = MerkleTree.sha256(
-            index + previousHash + merkleRoot + timestamp + nonce
-        );
-        return hash.equals(recomputed) && hash.startsWith("0".repeat(difficulty));
+    //Recompute merkle root from logs 
+    String recalculatedMerkle = MerkleTree.getMerkleRoot(logs);
+
+    if (!merkleRoot.equals(recalculatedMerkle)) {
+        return false;
     }
+
+    // Recompute hash
+    String recomputed = MerkleTree.sha256(
+        index + previousHash + merkleRoot + timestamp + nonce
+    );
+
+    return hash.equals(recomputed) && hash.startsWith("0".repeat(difficulty));
+}
 }
