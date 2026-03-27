@@ -155,9 +155,17 @@ export default function StatsPage() {
                 </p>
               </div>
               
-              <button className="w-full py-3 bg-[#CAFF33] hover:bg-[#b8e62e] text-black font-bold rounded-2xl text-xs transition-all uppercase tracking-widest relative z-10">
-                Download Performance Audit
-              </button>
+                <a
+    href={`${process.env.NEXT_PUBLIC_API_URL}/api/admin/stats/audit/download`}
+    download
+    className="w-full py-3 bg-[#CAFF33] hover:bg-[#b8e62e] active:scale-[0.99]
+               text-black font-bold rounded-2xl text-xs transition-all uppercase
+               tracking-widest relative z-10 flex items-center justify-center gap-2
+               no-underline"
+  >
+    
+    Download Performance Audit
+  </a>
             </div>
           </div>
         </div>

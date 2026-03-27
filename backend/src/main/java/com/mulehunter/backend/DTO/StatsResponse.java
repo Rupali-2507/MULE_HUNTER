@@ -9,7 +9,7 @@ import java.util.List;
 public class StatsResponse {
 
     // ── Top KPI cards ─────────────────────────────────────────────
-    public long   throughputTps;             // transactions / 86400 (min 1 for display)
+    public double throughputTps;         // transactions / 86400 (min 1 for display)
     public double avgDetectionLatencyMs;     // avg ms to score a transaction
     public long   muleAccountsBlocked;       // BLOCK decisions + suspectedFraud=true
     public long   muleAccountsBlockedToday;  // same, filtered to today UTC

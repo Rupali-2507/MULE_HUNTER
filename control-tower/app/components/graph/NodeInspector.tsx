@@ -3,12 +3,10 @@
 import { useState } from "react";
 import useExplanations from "../../hooks/useExplanations";
 
-/* ================= TYPES ================= */
-
 interface GraphNode {
   id: string | number;
   is_anomalous?: boolean | number;
-  anomalyScore?: number;   
+  anomalyScore?: number;
   volume?: number;
   size?: number;
 }
@@ -48,12 +46,7 @@ interface AISlideProps {
   onGenerate: () => void;
 }
 
-/* ================= COMPONENT ================= */
-
-export default function NodeInspector({
-  node,
-  onClose,
-}: NodeInspectorProps) {
+export default function NodeInspector({ node, onClose }: NodeInspectorProps) {
   const [aiText, setAiText] = useState<string | null>(null);
   const [loadingAI, setLoadingAI] = useState<boolean>(false);
   const [closing, setClosing] = useState<boolean>(false);
@@ -64,26 +57,34 @@ export default function NodeInspector({
 
   if (!node) return null;
 
-  const isAnomalous =
-    node.is_anomalous === true || node.is_anomalous === 1;
-
+  const isAnomalous = node.is_anomalous === true || node.is_anomalous === 1;
   const reasons: string[] = explanation?.reasons ?? [];
 
-  const generateAIExplanation = () => {
+  const generateAIExplanation = async () => {
     setLoadingAI(true);
-
-    setTimeout(() => {
-      setAiText(
-        `Account ${node.id} shows unusual transaction behavior with high connectivity 
-to anomalous accounts. Rapid inflow and outflow patterns indicate potential mule activity.`
-      );
+    try {
+      const res = await fetch("/api/explain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nodeId: node.id,
+          anomalyScore: node.anomalyScore,
+          reasons,
+          isAnomalous,
+          volume: node.volume,
+        }),
+      });
+      const data = await res.json();
+      setAiText(data.explanation);
+    } catch {
+      setAiText("Failed to generate explanation.");
+    } finally {
       setLoadingAI(false);
-    }, 1200);
+    }
   };
 
   const handleClose = () => {
     setClosing(true);
-
     setTimeout(() => {
       setAiText(null);
       setClosing(false);
@@ -106,11 +107,7 @@ to anomalous accounts. Rapid inflow and outflow patterns indicate potential mule
       <div className="flex justify-between items-center px-5">
         <h2 className="text-lg font-semibold">
           Node Forensics:{" "}
-          <span
-            className={
-              isAnomalous ? "text-red-400" : "text-green-400"
-            }
-          >
+          <span className={isAnomalous ? "text-red-400" : "text-green-400"}>
             ACC{node.id}
           </span>
         </h2>
@@ -129,7 +126,7 @@ to anomalous accounts. Rapid inflow and outflow patterns indicate potential mule
           value={isAnomalous ? "Anomalous" : "Normal"}
           highlight={isAnomalous}
         />
-       <Metric
+        <Metric
           label="Risk Score"
           value={
             node.anomalyScore !== undefined
@@ -162,7 +159,6 @@ to anomalous accounts. Rapid inflow and outflow patterns indicate potential mule
           >
             SHAP Explainability
           </TabButton>
-
           <TabButton
             active={activeSlide === "ai"}
             onClick={() => setActiveSlide("ai")}
@@ -201,8 +197,6 @@ to anomalous accounts. Rapid inflow and outflow patterns indicate potential mule
   );
 }
 
-/* ================= SUB COMPONENTS ================= */
-
 function Section({ title, children }: SectionProps) {
   return (
     <div className="p-5 border-b border-zinc-800">
@@ -214,12 +208,7 @@ function Section({ title, children }: SectionProps) {
   );
 }
 
-function Metric({
-  label,
-  value,
-  highlight,
-  color,
-}: MetricProps) {
+function Metric({ label, value, highlight, color }: MetricProps) {
   const colorClass =
     color === "red"
       ? "text-red-400"
@@ -230,20 +219,14 @@ function Metric({
   return (
     <div className="flex justify-between text-sm mb-2">
       <span className="text-gray-400">{label}</span>
-      <span
-        className={`${highlight ? "font-semibold" : ""} ${colorClass}`}
-      >
+      <span className={`${highlight ? "font-semibold" : ""} ${colorClass}`}>
         {value}
       </span>
     </div>
   );
 }
 
-function TabButton({
-  active,
-  onClick,
-  children,
-}: TabButtonProps) {
+function TabButton({ active, onClick, children }: TabButtonProps) {
   return (
     <button
       onClick={onClick}
@@ -260,15 +243,8 @@ function TabButton({
   );
 }
 
-function ShapSlide({
-  reasons,
-  loading,
-  isAnomalous,
-}: ShapSlideProps) {
-  if (loading)
-    return (
-      <p className="text-xs text-gray-500">Loading…</p>
-    );
+function ShapSlide({ reasons, loading, isAnomalous }: ShapSlideProps) {
+  if (loading) return <p className="text-xs text-gray-500">Loading…</p>;
 
   if (!reasons.length) {
     return (
@@ -298,11 +274,7 @@ function ShapSlide({
   );
 }
 
-function AISlide({
-  aiText,
-  loading,
-  onGenerate,
-}: AISlideProps) {
+function AISlide({ aiText, loading, onGenerate }: AISlideProps) {
   return (
     <>
       <div className="min-h-[80px] mb-3">
@@ -316,11 +288,10 @@ function AISlide({
           </p>
         )}
       </div>
-
       <button
         onClick={onGenerate}
         disabled={loading}
-        className="w-full rounded-md bg-white text-black py-2 text-sm font-medium hover:bg-gray-200"
+        className="w-full rounded-md bg-white text-black py-2 text-sm font-medium hover:bg-gray-200 disabled:opacity-50"
       >
         {loading ? "Generating..." : "Generate AI Summary"}
       </button>

@@ -2,18 +2,18 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-
-
+import { applyBundleLayout, removeBundleLayout } from "../../lib/bundleLayout";
 
 export interface GraphNode {
   id: string | number;
   is_anomalous: boolean;
-  anomalyScore?: number;  
-  volume?: number;         
+  anomalyScore?: number;
+  volume?: number;
   x?: number;
   y?: number;
   z?: number;
 }
+
 interface GraphLink {
   source: string | number | GraphNode;
   target: string | number | GraphNode;
@@ -35,11 +35,9 @@ interface FraudGraph3DProps {
   alertedNodeId?: string | number | null;
 }
 
-
 function resolveId(endpoint: string | number | GraphNode): string | number {
   return typeof endpoint === "object" ? endpoint.id : endpoint;
 }
-
 
 interface LegendDotProps {
   color: string;
@@ -55,7 +53,6 @@ function LegendDot({ color, label }: LegendDotProps) {
   );
 }
 
-
 export default function FraudGraph3D({
   onNodeSelect,
   selectedNode,
@@ -64,33 +61,33 @@ export default function FraudGraph3D({
   const fgRef = useRef<any>(null);
   const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
-  const [ForceGraph3D, setForceGraph3D] = useState<React.ComponentType<any> | null>(null);
+  const [ForceGraph3D, setForceGraph3D] =
+    useState<React.ComponentType<any> | null>(null);
   const [mounted, setMounted] = useState<boolean>(false);
   const [rawGraph, setRawGraph] = useState<RawGraph | null>(null);
   const [showOnlyFraud, setShowOnlyFraud] = useState<boolean>(false);
-  const [activeNodeId, setActiveNodeId] = useState<string | number | null>(null);
-  const [dimensions, setDimensions] = useState<{ width: number; height: number }>({
-    width: 0,
-    height: 0,
-  });
+  const [isBundled, setIsBundled] = useState<boolean>(false);
+  const [activeNodeId, setActiveNodeId] = useState<string | number | null>(
+    null
+  );
+  const [dimensions, setDimensions] = useState<{
+    width: number;
+    height: number;
+  }>({ width: 0, height: 0 });
   const [searchId, setSearchId] = useState<string>("");
   const [searchError, setSearchError] = useState<string>("");
   const hasFitted = useRef<boolean>(false);
-
 
   useEffect(() => {
     setMounted(true);
     setDimensions({ width: window.innerWidth, height: window.innerHeight });
   }, []);
 
-
   useEffect(() => {
     import("react-force-graph-3d").then((mod) => {
       setForceGraph3D(() => mod.default);
     });
   }, []);
-
-  
 
   useEffect(() => {
     if (!mounted) return;
@@ -99,7 +96,6 @@ export default function FraudGraph3D({
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, [mounted]);
-
 
   useEffect(() => {
     if (!mounted) return;
@@ -119,18 +115,16 @@ export default function FraudGraph3D({
             }): GraphNode => ({
               id: n.nodeId,
               is_anomalous: n.isAnomalous,
-              anomalyScore: n.anomalyScore,   
+              anomalyScore: n.anomalyScore,
               volume: n.volume,
             })
           ),
-
           links: data.links
             .filter((l: any) => l.source && l.target)
             .map((l: any) => ({
               source: String(l.source),
               target: String(l.target),
             })),
-          
         });
       } catch (err) {
         console.error("Graph load failed", err);
@@ -140,23 +134,27 @@ export default function FraudGraph3D({
     loadGraph();
   }, [mounted, API_BASE]);
 
-
   const visibleGraph = useMemo<RawGraph | null>(() => {
     if (!rawGraph) return null;
-    if (!showOnlyFraud) return rawGraph;
 
-    const fraudIds = new Set(
-      rawGraph.nodes.filter((n) => n.is_anomalous).map((n) => n.id)
-    );
+    let graph = rawGraph;
 
-    return {
-      nodes: rawGraph.nodes.filter((n) => fraudIds.has(n.id)),
-      links: rawGraph.links.filter(
-        (l) => fraudIds.has(resolveId(l.source)) && fraudIds.has(resolveId(l.target))
-      ),
-    };
-  }, [rawGraph, showOnlyFraud]);
+    if (showOnlyFraud) {
+      const fraudIds = new Set(
+        rawGraph.nodes.filter((n) => n.is_anomalous).map((n) => n.id)
+      );
+      graph = {
+        nodes: rawGraph.nodes.filter((n) => fraudIds.has(n.id)),
+        links: rawGraph.links.filter(
+          (l) =>
+            fraudIds.has(resolveId(l.source)) &&
+            fraudIds.has(resolveId(l.target))
+        ),
+      };
+    }
 
+    return isBundled ? applyBundleLayout(graph) : removeBundleLayout(graph);
+  }, [rawGraph, showOnlyFraud, isBundled]);
 
   const focusData = useMemo<FocusData>(() => {
     if (!activeNodeId || !visibleGraph) {
@@ -166,7 +164,6 @@ export default function FraudGraph3D({
     const neighborSet = new Set<string | number>([activeNodeId]);
     const fraudCluster = new Set<string | number>();
 
-    
     visibleGraph.links.forEach((link) => {
       const s = resolveId(link.source);
       const t = resolveId(link.target);
@@ -174,11 +171,9 @@ export default function FraudGraph3D({
       if (t === activeNodeId) neighborSet.add(s);
     });
 
-    
     visibleGraph.links.forEach((link) => {
       const s = resolveId(link.source);
       const t = resolveId(link.target);
-
       const sourceNode = typeof link.source === "object" ? link.source : null;
       const targetNode = typeof link.target === "object" ? link.target : null;
 
@@ -195,11 +190,17 @@ export default function FraudGraph3D({
     return { neighborSet, fraudCluster };
   }, [activeNodeId, visibleGraph]);
 
+  const handleToggleBundle = () => {
+    setIsBundled((prev) => !prev);
+    hasFitted.current = false;
+  };
 
   const handleSearch = () => {
     if (!searchId.trim()) return;
 
-    const node = rawGraph?.nodes.find((n) => String(n.id) === searchId.trim());
+    const node = rawGraph?.nodes.find(
+      (n) => String(n.id) === searchId.trim()
+    );
 
     if (!node) {
       setSearchError("Account not found");
@@ -212,11 +213,9 @@ export default function FraudGraph3D({
 
     setTimeout(() => {
       if (!fgRef.current || node.x === undefined) return;
-
       const distance = 80;
       const distRatio =
         1 + distance / Math.hypot(node.x ?? 0, node.y ?? 0, node.z ?? 0);
-
       fgRef.current.cameraPosition(
         {
           x: (node.x ?? 0) * distRatio,
@@ -229,7 +228,6 @@ export default function FraudGraph3D({
     }, 500);
   };
 
-
   const handleResetView = () => {
     if (!fgRef.current) return;
     setActiveNodeId(null);
@@ -237,19 +235,25 @@ export default function FraudGraph3D({
     fgRef.current.zoomToFit(800);
   };
 
-
   const handleZoomIn = () => {
     if (!fgRef.current) return;
     const camera = fgRef.current.camera() as THREE.PerspectiveCamera;
-    fgRef.current.cameraPosition({ z: camera.position.z * 0.85 }, undefined, 500);
+    fgRef.current.cameraPosition(
+      { z: camera.position.z * 0.85 },
+      undefined,
+      500
+    );
   };
 
   const handleZoomOut = () => {
     if (!fgRef.current) return;
     const camera = fgRef.current.camera() as THREE.PerspectiveCamera;
-    fgRef.current.cameraPosition({ z: camera.position.z * 1.15 }, undefined, 500);
+    fgRef.current.cameraPosition(
+      { z: camera.position.z * 1.15 },
+      undefined,
+      500
+    );
   };
-
 
   const handleNodeClick = (node: GraphNode) => {
     onNodeSelect(node);
@@ -269,7 +273,6 @@ export default function FraudGraph3D({
       800
     );
   };
-
 
   const getLinkColor = (link: GraphLink): string => {
     if (!activeNodeId) return "rgba(48, 72, 105, 1)";
@@ -294,7 +297,6 @@ export default function FraudGraph3D({
     return s === activeNodeId || t === activeNodeId ? 1 : 0.02;
   };
 
-
   const buildNodeObject = (node: GraphNode): THREE.Group => {
     const isSelected = node.id === activeNodeId;
     const isNeighbor = focusData.neighborSet.has(node.id);
@@ -310,7 +312,11 @@ export default function FraudGraph3D({
 
     const sphere = new THREE.Mesh(
       new THREE.SphereGeometry(3, 24, 24),
-      new THREE.MeshStandardMaterial({ color: baseColor, transparent: true, opacity })
+      new THREE.MeshStandardMaterial({
+        color: baseColor,
+        transparent: true,
+        opacity,
+      })
     );
     group.add(sphere);
 
@@ -324,7 +330,6 @@ export default function FraudGraph3D({
 
     return group;
   };
-
 
   const getNodeLabel = (node: GraphNode): string => `
     <div style="
@@ -342,7 +347,6 @@ export default function FraudGraph3D({
     </div>
   `;
 
-
   if (!mounted || !visibleGraph || !ForceGraph3D) {
     return (
       <div className="flex h-screen items-center justify-center text-white">
@@ -351,10 +355,8 @@ export default function FraudGraph3D({
     );
   }
 
-
   return (
     <div className="h-screen w-full bg-black relative">
-
       {/* ── Left panel ── */}
       <div
         className="absolute top-6 left-6 z-20
@@ -362,8 +364,12 @@ export default function FraudGraph3D({
                    border border-zinc-800
                    rounded-lg p-4 w-64 text-sm text-gray-300"
       >
-        <h3 className="text-white font-semibold mb-2">Fraud Transaction Network</h3>
-        <p className="text-xs text-gray-400 mb-4">Red nodes indicate anomalous accounts.</p>
+        <h3 className="text-white font-semibold mb-2">
+          Fraud Transaction Network
+        </h3>
+        <p className="text-xs text-gray-400 mb-4">
+          Red nodes indicate anomalous accounts.
+        </p>
 
         {/* Search */}
         <div className="mb-4">
@@ -375,13 +381,17 @@ export default function FraudGraph3D({
               setSearchId(e.target.value);
               setSearchError("");
             }}
-            onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSearch();
+            }}
             className="w-full px-3 py-2 text-sm bg-black border border-zinc-700 rounded-md text-white"
           />
-          {searchError && <p className="text-red-500 text-xs mt-1">{searchError}</p>}
+          {searchError && (
+            <p className="text-red-500 text-xs mt-1">{searchError}</p>
+          )}
         </div>
 
-       
+        {/* Fraud filter */}
         <label className="flex items-center gap-2 mb-4 cursor-pointer">
           <input
             type="checkbox"
@@ -392,13 +402,37 @@ export default function FraudGraph3D({
           <span>Show only fraud nodes</span>
         </label>
 
-       
+        {/* Legend */}
         <div className="space-y-2">
           <LegendDot color="#7f1d1d" label="Fraud" />
           <LegendDot color="#14532d" label="Normal" />
           <LegendDot color="rgba(100,140,255,0.5)" label="Transaction" />
         </div>
 
+        {/* Bundle layout legend when active */}
+        {isBundled && (
+          <div className="mt-3 pt-3 border-t border-zinc-700 space-y-1 text-xs text-gray-400">
+            <p className="font-medium text-gray-300 mb-1">Clusters</p>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-red-900" />
+              <span>Fraud accounts</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-green-900" />
+              <span>Low connectivity</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-green-700" />
+              <span>Mid connectivity</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-green-500" />
+              <span>High connectivity</span>
+            </div>
+          </div>
+        )}
+
+        {/* Reset view */}
         <button
           onClick={handleResetView}
           className="mt-4 w-full py-2 text-sm
@@ -408,30 +442,44 @@ export default function FraudGraph3D({
         >
           Reset View
         </button>
+
+        {/* Bundle layout toggle */}
+        <button
+          onClick={handleToggleBundle}
+          className={`mt-2 w-full py-2 text-sm rounded-md border transition
+            ${
+              isBundled
+                ? "bg-blue-900/40 border-blue-500 text-blue-300"
+                : "bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-gray-300"
+            }`}
+        >
+          {isBundled ? "⬡ Bundle Layout ON" : "⬡ Bundle Layout OFF"}
+        </button>
       </div>
 
-      
+      {/* ── Zoom controls ── */}
       <div className="absolute bottom-20 left-6 z-20 flex flex-col gap-3">
-        {[{ label: "+", fn: handleZoomIn }, { label: "−", fn: handleZoomOut }].map(
-          ({ label, fn }) => (
-            <button
-              key={label}
-              onClick={fn}
-              className="w-12 h-12 rounded-full
-                         bg-zinc-900/80 backdrop-blur-xl
-                         border border-zinc-800
-                         text-white text-xl
-                         hover:border-blue-500
-                         hover:shadow-[0_0_10px_rgba(59,130,246,0.4)]
-                         transition duration-200"
-            >
-              {label}
-            </button>
-          )
-        )}
+        {[
+          { label: "+", fn: handleZoomIn },
+          { label: "−", fn: handleZoomOut },
+        ].map(({ label, fn }) => (
+          <button
+            key={label}
+            onClick={fn}
+            className="w-12 h-12 rounded-full
+                       bg-zinc-900/80 backdrop-blur-xl
+                       border border-zinc-800
+                       text-white text-xl
+                       hover:border-blue-500
+                       hover:shadow-[0_0_10px_rgba(59,130,246,0.4)]
+                       transition duration-200"
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
-      
+      {/* ── 3D Graph ── */}
       <ForceGraph3D
         ref={fgRef}
         graphData={visibleGraph}
@@ -440,9 +488,8 @@ export default function FraudGraph3D({
         backgroundColor="#050814"
         enableNodeDrag={false}
         linkWidth={0.3}
-        d3Force="charge"
-        d3ForceStrength={-160}
-        d3VelocityDecay={0.28}
+        d3ForceStrength={isBundled ? 0 : -160}
+        d3VelocityDecay={isBundled ? 1 : 0.28}
         nodeLabel={getNodeLabel}
         nodeThreeObject={buildNodeObject}
         linkColor={getLinkColor}
@@ -450,12 +497,7 @@ export default function FraudGraph3D({
         onNodeClick={handleNodeClick}
         onEngineStop={() => {
           if (!hasFitted.current) {
-            const center = { x: 0, y: 0, z: 0 };
-            fgRef.current.cameraPosition(
-              { x: center.x, y: center.y, z: 200 },
-              center,
-              1000
-            );
+            fgRef.current?.zoomToFit(800);
             hasFitted.current = true;
           }
         }}
