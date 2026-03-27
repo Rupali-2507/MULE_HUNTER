@@ -38,7 +38,7 @@ export default function Page() {
               By combining graph analytics, machine learning, and explainable AI, MuleHunter empowers investigators to detect, analyze, and act on financial crime with speed and confidence.
             </div>
 
-            <Link href="https://fraud-viz-latest.onrender.com/" target="_blank" rel="noopener noreferrer">
+            <Link href="/network" target="_blank" rel="noopener noreferrer">
               <button className="bg-[#caff33] hover:bg-[#b8e62e] text-black text-sm p-3 cursor-pointer px-6 rounded-3xl transition-all font-bold">
                 Explore Fraud Network
               </button>
