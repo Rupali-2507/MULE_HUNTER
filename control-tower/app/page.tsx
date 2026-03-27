@@ -60,7 +60,7 @@ export default function Page() {
                 <h3 className="text-sm">🔺 Multiple Inbound Sources</h3>
                 <h3 className="text-sm">🔺 Circular Transaction Pattern</h3>
               </div>
-              <div className="px-4 py-3 bg-[#2f361e] rounded-xl items-center flex justify-center text-[#98b830] font-bold cursor-pointer hover:bg-[#3a4425] transition-all">
+              <div className="px-4 py-3 bg-[#2f361e] rounded-xl items-center flex justify-center text-[#98b830] font-bold  transition-all">
                 Explain Why This Is Fraud
               </div>
             </div>

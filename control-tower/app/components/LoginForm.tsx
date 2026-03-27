@@ -88,7 +88,11 @@ const LoginForm = () => {
           {loading ? "Authenticating..." : `Login as ${role}`}
         </button>
         
-        <button type="button" className="w-full text-gray-500 text-xs hover:text-white transition-all">
+        <button
+          type="button"
+          onClick={() => router.push("/service")}
+          className="w-full text-gray-500 text-xs hover:text-white transition-all"
+        >
           Request system access?
         </button>
       </form>
