@@ -189,7 +189,7 @@ public class ModelEvaluationService {
                                     int eifPred      = (eifRaw != null && eifRaw >= EIF_THRESHOLD) ? 1 : 0;
 
                                     combinedCM.add(combinedPred, actual);
-                                    if (!gnnIsStale) gnnCM.add(gnnPred, actual);
+                                    if (gnnRaw != null && !gnnIsStale) gnnCM.add(gnnPred, actual);
                                     eifCM.add(eifPred, actual);
 
                                     if (actual == 1) fraudCount++; else legitCount++;
@@ -246,7 +246,7 @@ public class ModelEvaluationService {
     private boolean isFraudNode(String val) {
         if (val == null) return false;
         String v = val.trim();
-        return v.equals("1") || v.equalsIgnoreCase("true");
+        return v.equals("1") || v.equals("1.0") || v.equalsIgnoreCase("true");
     }
 
     private String fmt(Double v) {
