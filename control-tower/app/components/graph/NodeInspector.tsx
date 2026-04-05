@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import useExplanations from "../../hooks/useExplanations";
+import useExplanations from "../../../hooks/useExplanations";
 
 interface GraphNode {
   id: string | number;
