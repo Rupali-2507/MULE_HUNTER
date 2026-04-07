@@ -143,8 +143,7 @@ export default function FraudGraph3D({
   onStatsUpdate,
 }: FraudGraph3DProps) {
   const fgRef = useRef<any>(null);
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
-
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_BASE_URL ?? "";
   // ── Dynamic import of 3-D force graph (client-only) ──
   const [ForceGraph3D, setForceGraph3D] =
     useState<React.ComponentType<any> | null>(null);
@@ -201,8 +200,12 @@ export default function FraudGraph3D({
 
     async function loadGraph() {
       try {
+       
         const res = await fetch(`${API_BASE}/api/graph`);
-        const data = await res.json();
+const data = await res.json();
+
+console.log("TOTAL NODES:", data.nodes.length);
+// console.log("FRAUD NODES:", data.nodes.filter(n => n.is_anomalous).length);
 
         // ── DEBUG: log first raw node so we can see exact field names ──
         if (data.nodes?.length > 0) {
