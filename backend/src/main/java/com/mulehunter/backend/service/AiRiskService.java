@@ -35,18 +35,26 @@ public class AiRiskService {
             double twoHopFraudDensity,
             double connectivityScore) {
 
+        // ── FIX: Use "sourceAccountId" (required by FastAPI GnnScoreRequest schema)
+        //         Old code used "accountId" which is not in the schema → 422 error
+        //         Also pass targetAccountId and transactionAmount for better scoring
         Map<String, Object> graphFeatures = Map.of(
                 "suspiciousNeighborCount", suspiciousNeighborCount,
                 "twoHopFraudDensity",      twoHopFraudDensity,
                 "connectivityScore",        connectivityScore
         );
         Map<String, Object> payload = Map.of(
-                "accountId",     String.valueOf(source),
-                "graphFeatures", graphFeatures
+                "sourceAccountId",   String.valueOf(source),
+                "targetAccountId",   String.valueOf(target),
+                "transactionAmount", amount,
+                "graphFeatures",     graphFeatures
         );
 
+        System.out.printf("🤖 AI REQUEST → sourceAccountId=%s targetAccountId=%s amount=%.2f%n",
+                source, target, amount);
+
         return aiWebClient.post()
-        .uri("/v1/gnn/score")
+                .uri("/v1/gnn/score")
                 .bodyValue(payload)
                 .retrieve()
                 .bodyToMono(JsonNode.class)
@@ -63,12 +71,17 @@ public class AiRiskService {
         AiRiskResult result = new AiRiskResult();
 
         // ── Core risk score ───────────────────────────────────────
-        // New GNN response uses scores.gnnScore, old uses risk_score
+        // Response shape from /v1/gnn/score (inference_service.py v3.1):
+        //   { gnnScore, confidence, scores: { gnnScore, confidence, riskLevel }, ... }
+        //
+        // FIX: was only checking nested path; now checks flat mirrors first
+        // because GnnScoreResponse exposes both flat mirrors AND nested blocks.
         double gnnScore = 0.0;
-        if (r.has("scores") && r.get("scores").has("gnnScore")) {
-            gnnScore = r.get("scores").get("gnnScore").asDouble();
-        } else if (r.has("gnnScore")) {
+        if (r.has("gnnScore") && !r.get("gnnScore").isNull()) {
+            // Flat mirror field (top-level) — most reliable
             gnnScore = r.get("gnnScore").asDouble();
+        } else if (r.has("scores") && r.get("scores").has("gnnScore")) {
+            gnnScore = r.get("scores").get("gnnScore").asDouble();
         } else if (r.has("risk_score")) {
             gnnScore = r.get("risk_score").asDouble();
         }
@@ -76,14 +89,28 @@ public class AiRiskService {
         result.setRiskScore(gnnScore);
         result.setSuspectedFraud(gnnScore > 0.5);
 
-        // ── Scores block ──────────────────────────────────────────
-        if (r.has("scores")) {
-            JsonNode scores = r.get("scores");
-            result.setConfidence(scores.path("confidence").asDouble(0.0));
-            result.setRiskLevel(scores.path("riskLevel").asText("UNKNOWN"));
-        } else {
-            result.setConfidence(r.path("confidence").asDouble(0.0));
+        // ── Confidence ────────────────────────────────────────────
+        // FIX: "confidence" is inside the "scores" block in the response,
+        //      but also exposed as a flat top-level mirror field.
+        //      Old code: r.path("confidence") which misses it when it's nested.
+        double confidence = 0.0;
+        if (r.has("confidence") && !r.get("confidence").isNull()) {
+            // Flat mirror
+            confidence = r.get("confidence").asDouble();
+        } else if (r.has("scores") && r.get("scores").has("confidence")) {
+            confidence = r.get("scores").get("confidence").asDouble();
         }
+        result.setConfidence(confidence);
+
+        // ── Risk level ────────────────────────────────────────────
+        // FIX: riskLevel lives inside scores{} block; old code only partially handled it
+        String riskLevel = "UNKNOWN";
+        if (r.has("scores") && r.get("scores").has("riskLevel")) {
+            riskLevel = r.get("scores").get("riskLevel").asText("UNKNOWN");
+        } else if (r.has("riskLevel") && !r.get("riskLevel").isNull()) {
+            riskLevel = r.get("riskLevel").asText("UNKNOWN");
+        }
+        result.setRiskLevel(riskLevel);
 
         // ── Model info ────────────────────────────────────────────
         result.setModelVersion(r.path("version").asText(
@@ -107,6 +134,7 @@ public class AiRiskService {
             result.setClusterSize(fc.path("clusterSize").asInt(0));
             result.setClusterRiskScore(fc.path("clusterRiskScore").asDouble(0.0));
         } else {
+            // flat mirror
             result.setClusterId(r.path("fraudClusterId").asInt(0));
         }
 
@@ -135,11 +163,14 @@ public class AiRiskService {
         result.setRiskFactors(riskFactors);
 
         // ── Embedding ─────────────────────────────────────────────
-        if (r.has("embedding")) {
-            result.setEmbeddingNorm(r.get("embedding").path("embeddingNorm").asDouble(0.0));
-        } else {
-            result.setEmbeddingNorm(r.path("embeddingNorm").asDouble(0.0));
+        // flat mirror: embeddingNorm
+        double embNorm = 0.0;
+        if (r.has("embeddingNorm") && !r.get("embeddingNorm").isNull()) {
+            embNorm = r.get("embeddingNorm").asDouble(0.0);
+        } else if (r.has("embedding")) {
+            embNorm = r.get("embedding").path("embeddingNorm").asDouble(0.0);
         }
+        result.setEmbeddingNorm(embNorm);
 
         // ── Old fields (backward compat) ──────────────────────────
         result.setOutDegree(r.path("out_degree").asInt(0));
@@ -153,20 +184,20 @@ public class AiRiskService {
         }
         result.setLinkedAccounts(linked);
 
-        System.out.printf("🤖 AI RESULT → gnn=%.4f conf=%.4f riskLevel=%s muleRing=%b suspNeighbors=%d riskFactors=%d%n",
-                gnnScore,
-                result.getConfidence(),
-                result.getRiskLevel(),
-                result.isMuleRingMember(),
-                result.getSuspiciousNeighbors(),
-                riskFactors.size());
+        System.out.printf(
+            "🤖 AI RESULT → gnn=%.4f conf=%.4f riskLevel=%s muleRing=%b suspNeighbors=%d riskFactors=%d%n",
+            gnnScore,
+            confidence,
+            riskLevel,
+            result.isMuleRingMember(),
+            result.getSuspiciousNeighbors(),
+            riskFactors.size());
 
         return result;
     }
 
     /**
      * Delegates EIF scoring to EifService — the sole owner of the EIF HTTP call.
-     * Signature kept identical so TransactionService needs no changes.
      */
     public Mono<Map<String, Object>> scoreEif(
             double velocityScore,
@@ -215,7 +246,7 @@ public class AiRiskService {
             m.precision = test.path("precision").asDouble(0.0);
             m.recall    = test.path("recall").asDouble(0.0);
             m.f1        = test.path("f1").asDouble(0.0);
-            m.auc        = test.path("auc_roc").asDouble(0.0);
+            m.auc       = test.path("auc_roc").asDouble(0.0);
             m.threshold = test.path("threshold_used").asDouble(0.5);
         }
         return m;
