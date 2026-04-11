@@ -79,12 +79,17 @@ RING_TIMEOUT_SEC       = 20
 MAX_RINGS_CACHED       = 200
 UNKNOWN_NODE_CACHE_MAX = 10_000
 
-# ── Low-amount suppression ────────────────────────────────────────────────────
-LOW_AMOUNT_HARD_CAP  = 1_000
-LOW_AMOUNT_SCORE_CAP = 0.30
+LOW_AMOUNT_HARD_CAP  = 500      # below ₹500
+LOW_AMOUNT_SCORE_CAP = 0.60     # allow up to 0.60 even for small amounts
 
-# ── New account score cap ─────────────────────────────────────────────────────
-NEW_ACCOUNT_SCORE_CAP = 0.45
+NEW_ACCOUNT_SCORE_CAP = 0.75
+# Add these constants near the top with your other constants
+HIGH_AMOUNT_FLOOR_THRESHOLD = 100_000    # ₹1 lakh+
+HIGH_AMOUNT_FLOOR_SCORE     = 0.45       # minimum score for very high amounts
+VERY_HIGH_AMOUNT_THRESHOLD  = 1_000_000  # ₹10 lakh+  
+VERY_HIGH_AMOUNT_FLOOR      = 0.60       # minimum score for ₹10 lakh+
+CRORE_THRESHOLD             = 10_000_000 # ₹1 crore+
+CRORE_FLOOR                 = 0.72       # minimum score for crore-level transactions
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -591,15 +596,34 @@ def _amount_multiplier(amount: float) -> float:
     if amt < 1_00_000:      return 1.08
     return 1.18
 
-
 def _transaction_adjusted_risk(base_risk: float, amount: float) -> float:
-    amt    = max(0.0, float(amount))
-    scaled = float(np.clip(base_risk * _amount_multiplier(amt), 0.0, 1.0))
+    amt = max(0.0, float(amount))
 
-    if 0 < amt < LOW_AMOUNT_HARD_CAP:
-        scaled = min(scaled, LOW_AMOUNT_SCORE_CAP)
+    # Amount weight: dampens small txns, amplifies large ones
+    if amt <= 0:            amount_weight = 0.30
+    elif amt < 100:         amount_weight = 0.40   # ₹0-100: heavy dampen
+    elif amt < 500:         amount_weight = 0.55   # ₹100-500: moderate dampen
+    elif amt < 2_000:       amount_weight = 0.75   # ₹500-2k
+    elif amt < 10_000:      amount_weight = 0.90   # ₹2k-10k
+    elif amt < 1_00_000:    amount_weight = 1.00   # ₹10k-1L: full score
+    elif amt < 10_00_000:   amount_weight = 1.10   # ₹1L-10L: amplify
+    else:                   amount_weight = 1.20   # ₹10L+: strong amplify
 
-    return scaled
+    # Preserve at least 35% of graph signal always
+    graph_floor = base_risk * 0.35
+    blended = max(graph_floor, base_risk * amount_weight)
+
+    # ── HIGH AMOUNT FLOORS ────────────────────────────────────────────────
+    # A 2-crore transaction being scored 0.01 is a demo killer.
+    # Even with zero graph context, high-value transactions warrant scrutiny.
+    if amt >= CRORE_THRESHOLD:
+        blended = max(blended, CRORE_FLOOR)           # ₹1 crore+ → min 0.72
+    elif amt >= VERY_HIGH_AMOUNT_THRESHOLD:
+        blended = max(blended, VERY_HIGH_AMOUNT_FLOOR) # ₹10L+ → min 0.60
+    elif amt >= HIGH_AMOUNT_FLOOR_THRESHOLD:
+        blended = max(blended, HIGH_AMOUNT_FLOOR_SCORE) # ₹1L+ → min 0.45
+
+    return float(np.clip(blended, 0.0, 1.0))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
