@@ -10,7 +10,7 @@ const LoginForm = () => {
   const [loading, setLoading] = useState(false);
   
   const router = useRouter();
-  const roles = ['admin', 'investigator', 'viewer'];
+  const roles = ['admin', 'investigator', 'Integration Partner'];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

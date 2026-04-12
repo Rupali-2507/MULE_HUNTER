@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import dynamic from "next/dynamic";
 import GraphControls from "../components/graph/GraphControls";
-import NodeInspector from "../components/graph/NodeInspector";
+import { NodeInspector } from "../components/graph/NodeInspector";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
 import type { GraphNode } from "../components/graph/FraudGraph3D";
