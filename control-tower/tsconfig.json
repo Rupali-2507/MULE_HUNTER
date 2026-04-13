@@ -30,6 +30,6 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
     "**/*.mts"
-, "lib/seedDb.js"  ],
+, "lib/seedDb.js", "lib/seedUser.js"  ],
   "exclude": ["node_modules"]
 }

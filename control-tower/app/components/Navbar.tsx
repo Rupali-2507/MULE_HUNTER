@@ -46,7 +46,7 @@ const Navbar = () => {
         </div>
 
         {/* CENTER: Navigation Links */}
-        <div className="hidden md:flex gap-8 text-gray-400 text-sm font-medium items-center">
+        <div className="hidden md:flex gap-4 lg:gap-6 xl:gap-8 text-gray-400 text-sm font-medium items-center">
           <NavContent session={session} />
         </div>
 

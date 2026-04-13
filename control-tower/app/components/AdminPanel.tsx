@@ -141,12 +141,14 @@ export default function AdminPanel({ initialUsers, session }: { initialUsers: Us
                   }`}>
                     {user.role}
                   </span>
-                  <button 
-                    onClick={() => handleRevoke(user._id, user.name, user.email)}
-                    className="text-red-900 text-[10px] uppercase font-bold hover:text-red-500 transition-colors opacity-60 group-hover:opacity-100"
-                  >
-                    Revoke
-                  </button>
+                  {user.role !== "admin" && (
+                    <button 
+                      onClick={() => handleRevoke(user._id, user.name, user.email)}
+                      className="text-red-900 text-[10px] uppercase font-bold hover:text-red-500 transition-colors opacity-60 group-hover:opacity-100"
+                    >
+                      Revoke
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
