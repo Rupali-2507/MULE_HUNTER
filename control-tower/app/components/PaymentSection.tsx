@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL;
+  process.env.NEXT_PUBLIC_BACKEND_BASE_URL;
+console.log(BACKEND_URL);
 
 const PENALTY_REVIEW = 500;
 const PENALTY_BLOCK  = 2000;

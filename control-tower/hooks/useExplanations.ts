@@ -26,7 +26,7 @@ export default function useExplanations(
     useState<boolean>(false);
 
   const API_BASE =
-    process.env.NEXT_PUBLIC_API_BASE_URL;
+    process.env.NEXT_PUBLIC_BACKEND_BASE_URL;
 
   useEffect(() => {
     if (nodeId === null || nodeId === undefined) {
