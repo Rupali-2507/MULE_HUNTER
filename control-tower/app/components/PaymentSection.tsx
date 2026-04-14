@@ -422,10 +422,10 @@ function KycBanner({ kyc, onCompleteKyc }: KycBannerProps) {
       <p style={{ fontSize: 12, color: "#d1d5db", margin: "0 0 10px", lineHeight: 1.6 }}>
         {isBlock
           ? `A high-risk transaction flagged your account. ALL UPI transactions are suspended
-             until KYC is verified. Penalty applied: ₹${kyc.penaltyApplied.toLocaleString("en-IN")}.
+             until KYC is verified. 
              ${overdue ? `Additional overdue penalty: ₹${PENALTY_KYC_MISS_BLOCK.toLocaleString("en-IN")} levied.` : ""}`
           : `A transaction triggered a fraud review. You may continue using UPI but KYC must
-             be completed within 24 hours. Penalty applied: ₹${kyc.penaltyApplied.toLocaleString("en-IN")}.
+             be completed within 24 hours. 
              ${overdue ? `Additional overdue penalty: ₹${PENALTY_KYC_MISS_REVIEW.toLocaleString("en-IN")} levied.` : ""}`}
       </p>
 
@@ -841,26 +841,7 @@ export default function PaymentSection({
         onCompleteKyc={() => setShowKycModal(true)}
       />
 
-      {kyc.penaltyApplied > 0 && (
-        <div
-          style={{
-            background: "#1c1917",
-            border: "1px solid #44403c",
-            borderRadius: 8,
-            padding: "8px 14px",
-            marginBottom: 14,
-            fontSize: 12,
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <span style={{ color: "#a8a29e" }}>TOTAL PENALTIES LEVIED</span>
-          <span style={{ color: "#fca5a5", fontWeight: 700 }}>
-            ₹{(kyc.penaltyApplied + kyc.penaltyExtra).toLocaleString("en-IN")}
-          </span>
-        </div>
-      )}
+      
 
       {/* Payment form */}
       <div
