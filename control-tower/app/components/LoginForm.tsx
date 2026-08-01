@@ -28,10 +28,20 @@ const LoginForm = () => {
       return;
     }
 
-    if (role === 'admin') {
-      router.push("/admin");
-    } else {
-      router.push("/");
+    // Fetch the actual role from the server session (not the UI toggle)
+    try {
+      const roleRes = await fetch("/api/user/role");
+      const roleData = await roleRes.json();
+      const actualRole = roleData?.role ?? "viewer";
+      
+      if (actualRole === "admin") {
+        router.push("/admin");
+      } else {
+        router.push("/dashboard");
+      }
+    } catch {
+      // Fallback: just go to dashboard
+      router.push("/dashboard");
     }
     
     router.refresh(); //update session

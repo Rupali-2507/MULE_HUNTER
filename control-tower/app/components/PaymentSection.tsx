@@ -4,8 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_BASE_URL;
-console.log(BACKEND_URL);
+  process.env.NEXT_PUBLIC_BACKEND_BASE_URL ?? "http://localhost:8082";
 
 const PENALTY_REVIEW = 500;
 const PENALTY_BLOCK  = 2000;
@@ -368,19 +367,20 @@ interface KycBannerProps {
 }
 
 function KycBanner({ kyc, onCompleteKyc }: KycBannerProps) {
-  const [countdown, setCountdown] = useState(() =>
-    fmtCountdown(msLeft(kyc.deadlineIso))
-  );
+  const [mounted, setMounted] = useState(false);
+  const [countdown, setCountdown] = useState("");
 
   useEffect(() => {
+    setMounted(true);
+    setCountdown(fmtCountdown(msLeft(kyc.deadlineIso)));
+    
     const t = setInterval(() => {
       setCountdown(fmtCountdown(msLeft(kyc.deadlineIso)));
     }, 1000);
     return () => clearInterval(t);
   }, [kyc.deadlineIso]);
 
-  if (kyc.status === "none" || kyc.status === "completed") return null;
-
+  if (!mounted || kyc.status === "none" || kyc.status === "completed") return null;
   const isBlock = kyc.status === "pending_block" || kyc.accountBlocked;
   const overdue = msLeft(kyc.deadlineIso) <= 0;
 
@@ -478,7 +478,7 @@ function KycModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () =
   const [selfie, setSelfie] = useState(false);
 
   async function submit() {
-    if (aadhaar.length < 12 || pan.length < 10 || !selfie) return;
+    if (!aadhaar || !pan || !selfie) return;
     setStep("verifying");
     await new Promise((r) => setTimeout(r, 2400));
     setStep("done");
@@ -527,8 +527,8 @@ function KycModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () =
             <input
               maxLength={12}
               value={aadhaar}
-              onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, ""))}
-              placeholder="XXXX XXXX XXXX"
+              onChange={(e) => setAadhaar(e.target.value)}
+              placeholder="1234 5678 9012"
               style={{
                 width: "100%",
                 background: "#1f2937",
@@ -589,7 +589,7 @@ function KycModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () =
             <div style={{ display: "flex", gap: 10 }}>
               <button
                 onClick={submit}
-                disabled={aadhaar.length < 12 || pan.length < 10 || !selfie}
+                disabled={!aadhaar || !pan || !selfie}
                 style={{
                   flex: 1,
                   background: "#1d4ed8",
@@ -600,7 +600,7 @@ function KycModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () =
                   fontSize: 13,
                   fontWeight: 700,
                   cursor: "pointer",
-                  opacity: aadhaar.length < 12 || pan.length < 10 || !selfie ? 0.45 : 1,
+                  opacity: !aadhaar || !pan || !selfie ? 0.45 : 1,
                   letterSpacing: "0.05em",
                 }}
               >
@@ -690,7 +690,11 @@ export default function PaymentSection({
   const [error, setError]             = useState<string | null>(null);
   const [showKycModal, setShowKycModal] = useState(false);
 
-  const [kyc, setKyc] = useState<KycState>(() => loadKyc(currentUserAccount));
+  const [kyc, setKyc] = useState<KycState>(EMPTY_KYC);
+
+  useEffect(() => {
+    setKyc(loadKyc(currentUserAccount));
+  }, [currentUserAccount]);
 
   const kycRef = useRef(kyc);
   kycRef.current = kyc;

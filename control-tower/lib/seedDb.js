@@ -17,19 +17,20 @@ async function seed() {
         await mongoose.connect(uri);
         console.log('Connected to MongoDB');
 
-        const publicDir = path.join(__dirname, '..', 'public');
+        const publicDir = path.join(__dirname, '..', '..', 'shared-data');
         
-        const nodesPath = path.join(publicDir, 'nodes_scored.csv'); 
-        const fraudPath = path.join(publicDir, 'fraud_explanations.json');
-        const shapPath = path.join(publicDir, 'shap_explanations.json');
+        const nodesPath = path.join(publicDir, 'nodes.csv'); 
+        const fraudPath = path.join(publicDir, 'fraud_explanations.json'); // Might not exist
+        const shapPath = path.join(publicDir, 'shap_explanations.json'); // Might not exist
         const txPath = path.join(publicDir, 'transactions.csv');
 
-        [nodesPath, fraudPath, shapPath, txPath].forEach(p => {
+        [nodesPath, txPath].forEach(p => {
             if (!fs.existsSync(p)) {
                 console.error(`❌ Missing: ${p}`);
                 process.exit(1);
             }
         });
+
 
         const nodes = [];
         console.log('Parsing files from /public...');
@@ -38,8 +39,10 @@ async function seed() {
             .pipe(csv())
             .on('data', (row) => nodes.push(row))
             .on('end', async () => {
-                const fraudData = JSON.parse(fs.readFileSync(fraudPath, 'utf8'));
-                const shapData = JSON.parse(fs.readFileSync(shapPath, 'utf8'));
+                let fraudData = [];
+                let shapData = [];
+                try { if (fs.existsSync(fraudPath)) fraudData = JSON.parse(fs.readFileSync(fraudPath, 'utf8')); } catch (e) {}
+                try { if (fs.existsSync(shapPath)) shapData = JSON.parse(fs.readFileSync(shapPath, 'utf8')); } catch (e) {}
 
                 const nodeDocuments = nodes.map(n => {
                     const fraud = fraudData.find(f => f.node_id == n.node_id);
@@ -47,12 +50,13 @@ async function seed() {
                     return {
                         ...n,
                         node_id: parseInt(n.node_id),
-                        is_anomalous: parseInt(n.is_anomalous),
-                        anomaly_score: parseFloat(n.anomaly_score),
+                        is_anomalous: n.is_anomalous ? parseInt(n.is_anomalous) : 0,
+                        anomaly_score: n.anomaly_score ? parseFloat(n.anomaly_score) : 0.0,
                         reasons: fraud ? fraud.reasons : [],
                         shap_factors: shap ? shap.top_factors : []
                     };
                 });
+
 
                 await Node.deleteMany({}); 
                 await Node.insertMany(nodeDocuments);

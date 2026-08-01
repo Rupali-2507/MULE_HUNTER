@@ -32,5 +32,5 @@ export async function GET() {
 );
 
 
-  return NextResponse.json({ roleToken });
+  return NextResponse.json({ role: userRole, roleToken });
 }

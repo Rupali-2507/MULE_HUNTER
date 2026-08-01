@@ -143,7 +143,8 @@ export default function FraudGraph3D({
   onStatsUpdate,
 }: FraudGraph3DProps) {
   const fgRef = useRef<any>(null);
-const API_BASE = process.env.NEXT_PUBLIC_BACKEND_BASE_URL ?? "";
+  const API_BASE = process.env.NEXT_PUBLIC_BACKEND_BASE_URL ?? "http://localhost:8082";
+
   // ── Dynamic import of 3-D force graph (client-only) ──
   const [ForceGraph3D, setForceGraph3D] =
     useState<React.ComponentType<any> | null>(null);
@@ -324,7 +325,7 @@ console.log("TOTAL NODES:", data.nodes.length);
     }
 
     loadGraph();
-  }, [mounted, API_BASE]);
+  }, [mounted, API_BASE, onStatsUpdate]);
 
   // ── Synthetic demo data (fallback when API is unreachable) ──
   function generateDemoGraph() {

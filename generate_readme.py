@@ -1,4 +1,6 @@
-# 🎯 Mule Hunter Engine
+import os
+
+readme_content = """# 🎯 Mule Hunter Engine
 
 <div align="center">
 
@@ -149,7 +151,7 @@ The database needs the pre-processed graph nodes (14,318 nodes) and transactions
 2. Create and activate a Python 3.11 virtual environment:
    ```bash
    python -m venv .venv
-   # Windows: .venv\Scripts\activate
+   # Windows: .venv\\Scripts\\activate
    # Linux/Mac: source .venv/bin/activate
    ```
 3. Install PyTorch first:
@@ -183,7 +185,7 @@ python -m uvicorn inference_service:app --host 0.0.0.0 --port 8001 --reload
 ```bash
 cd backend
 # Windows Users: Ensure JAVA_HOME is set in PowerShell if not globally configured
-$env:JAVA_HOME="C:\Program Files\Java\jdk-17"
+$env:JAVA_HOME="C:\\Program Files\\Java\\jdk-17"
 mvn spring-boot:run
 ```
 
@@ -208,3 +210,9 @@ Open your browser and navigate to **[http://localhost:3000](http://localhost:300
 | **Prisha** | Backend Architect | Spring Boot 14-step pipeline · AI service integration · circuit breakers |
 | **Ratnesh** | Security Architect | JA3 TLS fingerprinting · Merkle tree ledger · blockchain forensics |
 | **Manya** | Full Stack Lead | Next.js dashboard · real-time UX · all 9 live-wired sections · deployment |
+"""
+
+with open('c:\\Users\\muska\\OneDrive\\Desktop\\MULE_HUNTER\\README.md', 'w', encoding='utf-8') as f:
+    f.write(readme_content)
+
+print("Successfully wrote hyper-detailed README.md")
