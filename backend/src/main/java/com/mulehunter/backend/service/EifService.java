@@ -24,7 +24,7 @@ public class EifService {
     private final WebClient webClient;
 
     public EifService(
-            @Value("${eif.service.url:http://16.170.208.158:8000}") String eifServiceUrl
+            @Value("${eif.service.url:http://localhost:8000}") String eifServiceUrl
     ) {
         System.out.println("🔬 EIF SERVICE URL: " + eifServiceUrl);
         this.webClient = WebClient.builder()

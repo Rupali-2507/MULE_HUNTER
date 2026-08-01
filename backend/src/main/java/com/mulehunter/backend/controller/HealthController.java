@@ -18,7 +18,7 @@ public class HealthController {
     private final WebClient aiWebClient;
     
     public HealthController(
-            @Value("${ai.service.url:http://56.228.10.113:8001}") String aiServiceUrl
+            @Value("${ai.service.url:http://localhost:8001}") String aiServiceUrl
     ) {
         this.aiWebClient = WebClient.builder()
                 .baseUrl(aiServiceUrl)

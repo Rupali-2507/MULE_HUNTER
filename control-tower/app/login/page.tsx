@@ -18,8 +18,8 @@ export default function Home() {
           </p>
           <p>For demonstration purposes,
             you can use the following credentials:</p>
-          <p>Email: admin@test.com</p>
-          <p>Password: Test@123</p>
+          <p>Email: user@test.com</p>
+          <p>Password: userPassword</p>
         </div>
 
       </div>

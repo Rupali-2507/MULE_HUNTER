@@ -13,7 +13,7 @@ interface RoleGateProps {
 
 export function RoleGate({
   allowedRoles,
-  redirectTo = "/pay",
+  redirectTo = "/login",
   children,
   fallback,
 }: RoleGateProps) {

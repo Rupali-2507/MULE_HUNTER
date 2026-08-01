@@ -20,15 +20,16 @@ public class VisualStreamController {
     @Value("${visual.internal-api-key}")
     private String internalApiKey;
 
-    public VisualStreamController(WebClient.Builder builder) {
-        this.webClient = builder
-            .baseUrl("http://13.61.143.100:8000")
-            .build();
+    public VisualStreamController(
+            WebClient.Builder builder,
+            @Value("${visual.service.url:http://localhost:8000}") String visualServiceUrl
+    ) {
+        this.webClient = builder.baseUrl(visualServiceUrl).build();
     }
 
     @GetMapping(
-        value = "/stream/unsupervised",
-        produces = MediaType.TEXT_EVENT_STREAM_VALUE
+            value = "/stream/unsupervised",
+            produces = MediaType.TEXT_EVENT_STREAM_VALUE
     )
     public Flux<String> streamUnsupervised(
             @RequestParam String transactionId,
@@ -37,17 +38,17 @@ public class VisualStreamController {
         System.out.println("➡ SSE proxy connected | tx=" + transactionId + " node=" + nodeId);
 
         return webClient.get()
-            .uri(uriBuilder -> uriBuilder
+                .uri(uriBuilder -> uriBuilder
                 .path("/visual-analytics/api/visual/stream/unsupervised")
                 .queryParam("transactionId", transactionId)
                 .queryParam("nodeId", nodeId)
                 .build())
-            .header("X-INTERNAL-API-KEY", internalApiKey)
-            .accept(MediaType.TEXT_EVENT_STREAM)
-            .retrieve()
-            .bodyToFlux(String.class)
-            .doOnCancel(() ->
-                System.out.println("❌ SSE proxy disconnected | tx=" + transactionId)
-            );
+                .header("X-INTERNAL-API-KEY", internalApiKey)
+                .accept(MediaType.TEXT_EVENT_STREAM)
+                .retrieve()
+                .bodyToFlux(String.class)
+                .doOnCancel(()
+                        -> System.out.println("❌ SSE proxy disconnected | tx=" + transactionId)
+                );
     }
 }

@@ -16,7 +16,7 @@ public class Ja3SecurityService {
     private final WebClient securityWebClient;
 
     public Ja3SecurityService(
-            @Value("${security.service.url:http://mule-hunter-security-env.eba-twt3gcts.us-east-1.elasticbeanstalk.com}")
+            @Value("${security.service.url:http://localhost:8081}")
             String securityServiceUrl
     ) {
         System.out.println("🔐 CONNECTING SECURITY TO: " + securityServiceUrl);

@@ -18,7 +18,7 @@ public class VisualAnalyticsService {
     private String visualInternalApiKey;
 
     public VisualAnalyticsService(
-            @Value("${visual.analytics.url:http://13.61.143.100:8000}") String visualServiceUrl
+            @Value("${visual.analytics.url:http://localhost:8000}") String visualServiceUrl
     ) {
 
         System.out.println("🔌 CONNECTING VISUALS TO: " + visualServiceUrl);

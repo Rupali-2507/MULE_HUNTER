@@ -21,7 +21,7 @@ public class AiRiskService {
     private final EifService eifService;
 
     public AiRiskService(
-            @Value("${ai.service.url:http://56.228.10.113:8001}") String aiServiceUrl,
+            @Value("${ai.service.url:http://localhost:8001}") String aiServiceUrl,
             EifService eifService
     ) {
         System.out.println("🔌 CONNECTING AI TO: " + aiServiceUrl);

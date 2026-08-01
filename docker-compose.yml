@@ -7,7 +7,7 @@ services:
       context: ./ai-engine
       dockerfile: Dockerfile
     ports:
-      - "8001:8000"
+      - "8001:8001"
     volumes:
       - ./shared-data:/shared-data
     networks:
@@ -38,7 +38,7 @@ services:
       context: ./security-forensics
       dockerfile: Dockerfile
     ports:
-      - "8080:8080"
+      - "8081:8081"
     networks:
       - mulehunter-net
 
@@ -51,8 +51,8 @@ services:
       - "8082:8080"
     environment:
       visual.internal-api-key: dummy
-      security.service.url: http://security-forensics:8080
-      ai.service.url: http://ai-engine:8000
+      security.service.url: http://security-forensics:8081
+      ai.service.url: http://ai-engine:8001
       visual.service.url: http://visual-analytics:8000
     depends_on:
       - security-forensics

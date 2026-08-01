@@ -119,7 +119,7 @@ The Spring Boot backend requires its properties to be synced with the local setu
    jwt.secret=hsdhsu68283hsdbbsdju28e77382327920oddn83t8y3i2nhw8dyy73298329ndw28723h
    visual.internal-api-key=visual-analytics-secret-123
    spring.data.mongodb.uri=mongodb://localhost:27017/mule_hunter_auth
-   security.service.url=http://localhost:8080
+   security.service.url=http://localhost:8081
    ai.service.url=http://localhost:8001
    eif.service.url=http://localhost:8001
    visual.service.url=http://localhost:8000
