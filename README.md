@@ -104,7 +104,7 @@ The Next.js frontend (`control-tower`) requires a very specific `.env.local` fil
    NEXT_PUBLIC_ML_URL=http://localhost:8001
    
    # Optional Features
-   ANTHROPIC_API_KEY=
+   GROQ_API_KEY=
    NEXT_PUBLIC_EMAILJS_SERVICE_ID=
    NEXT_PUBLIC_EMAILJS_TEMPLATE_ID=
    NEXT_PUBLIC_EMAILJS_PUBLIC_KEY=

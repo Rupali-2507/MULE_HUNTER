@@ -51,8 +51,8 @@ export async function POST(req: NextRequest) {
 
   const { nodeId, anomalyScore, isAnomalous, reasons, volume, role } = payload;
 
-  // ── Try Claude API first ──
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  // ── Try Groq API first ──
+  const apiKey = process.env.GROQ_API_KEY;
 
   if (apiKey) {
     try {
@@ -70,32 +70,30 @@ Write a concise 3-sentence forensic explanation of why this account was flagged.
 Be specific about the fraud pattern (smurfing, layering, structuring).
 End with a clear action recommendation. Do not use bullet points.`;
 
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
+          "Authorization": `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: "claude-3-5-haiku-latest",
-          max_tokens: 256,
+          model: "llama3-8b-8192",
           messages: [{ role: "user", content: prompt }],
         }),
       });
 
       if (!response.ok) {
-        throw new Error(`Anthropic API returned ${response.status}`);
+        throw new Error(`Groq API returned ${response.status}`);
       }
 
       const data = await response.json();
       const explanation =
-        data?.content?.[0]?.text ??
+        data?.choices?.[0]?.message?.content ??
         localExplanation({ nodeId, anomalyScore: anomalyScore ?? 0, isAnomalous: !!isAnomalous, reasons: reasons ?? [], volume: volume ?? 0, role: role ?? "MULE" });
 
       return NextResponse.json({ explanation });
     } catch (err) {
-      console.error("Explain API error (Claude):", err);
+      console.error("Explain API error (Groq):", err);
       // Fall through to local fallback
     }
   }
