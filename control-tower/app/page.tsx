@@ -1,6 +1,6 @@
 "use client";
 import Navbar from "./components/Navbar";
-import {Check, Network, AlertTriangle, Brain, UserX, Activity, Lightbulb, ArrowLeftRight, GitBranch, FileSearch} from "lucide-react";
+import {Check, Network, AlertTriangle, Brain, UserX, Activity, Lightbulb, ArrowLeftRight, GitBranch, FileSearch, Presentation, ChevronRight} from "lucide-react";
 import { IndianRupee, Banknote, Landmark, Wallet, Building2 } from "lucide-react";
 import TransactionCard from "./components/TransactionCard";
 import GreenIconCircle from "./components/GreenIconCircle";
@@ -77,6 +77,50 @@ export default function Page() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* ── PITCH DECK CTA ─────────────────────────────────────────────── */}
+      <div className="w-full max-w-[1600px] mx-auto px-6 md:px-10 py-6">
+        <Link href="/pitch" className="group block">
+          <div
+            className="relative overflow-hidden rounded-2xl border border-[#caff33]/20
+                       bg-gradient-to-r from-[#0a0f02] via-[#0c0c0c] to-[#04040f]
+                       px-8 py-6 flex items-center justify-between gap-6
+                       hover:border-[#caff33]/50 transition-all duration-300
+                       hover:shadow-[0_0_40px_-8px_rgba(202,255,51,.18)]"
+          >
+            {/* animated shimmer line */}
+            <span
+              className="absolute inset-y-0 left-0 w-[2px]
+                         bg-gradient-to-b from-transparent via-[#caff33] to-transparent
+                         opacity-60 group-hover:opacity-100 transition-opacity"
+            />
+
+            <div className="flex items-center gap-5">
+              <div
+                className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0
+                           bg-[#caff33]/10 border border-[#caff33]/25
+                           group-hover:bg-[#caff33]/18 transition-colors"
+              >
+                <Presentation className="w-5 h-5 text-[#caff33]" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-white">Team Alertix &mdash; Pitch Deck</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Defense-in-Depth &bull; GNN &bull; EIF &bull; Blockchain &bull; NIT Patna &mdash; 12 slides
+                </p>
+              </div>
+            </div>
+
+            <div
+              className="flex items-center gap-2 text-xs font-bold text-[#caff33]
+                         opacity-60 group-hover:opacity-100 transition-opacity flex-shrink-0"
+            >
+              View Presentation
+              <ChevronRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
+            </div>
+          </div>
+        </Link>
       </div>
 
       {/* CORE CAPABILITIES - Balanced Container */}

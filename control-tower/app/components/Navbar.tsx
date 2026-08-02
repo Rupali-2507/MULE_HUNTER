@@ -107,6 +107,16 @@ const NavContent = ({ session, onLinkClick }: { session: any, onLinkClick?: () =
     <Link href="/service" onClick={onLinkClick} className="hover:text-[#CAFF33] transition-colors">
       Request Service
     </Link>
+
+    <Link
+      href="/pitch"
+      onClick={onLinkClick}
+      className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold
+                 text-black bg-[#CAFF33] hover:bg-[#b8e62e] transition-all"
+    >
+      <span className="inline-block w-1.5 h-1.5 rounded-full bg-black/40" />
+      Pitch Deck
+    </Link>
     
     {session?.user?.role === "admin" && (
       <Link 
