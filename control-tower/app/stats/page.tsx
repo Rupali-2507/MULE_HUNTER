@@ -34,11 +34,12 @@ export default function StatsPage() {
 
   const [stats, setStats] = useState<any>(null);
   const [error, setError] = useState(false);
+  const apiBaseUrl = process.env.NEXT_PUBLIC_BACKEND_BASE_URL ?? "http://localhost:8082";
 
   useEffect(() => {
     const fetchStats = async () => {
         try {
-          const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_BASE_URL}/api/admin/stats`);
+          const res = await fetch(`${apiBaseUrl}/api/admin/stats`);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const data = await res.json();
           setStats(data);
@@ -183,7 +184,7 @@ export default function StatsPage() {
               </div>
               
                 {/* <a
-    href={`${process.env.NEXT_PUBLIC_API_URL}/api/admin/stats/audit/download`}
+    href={`${apiBaseUrl}/api/admin/stats/audit/download`}
     download
     className="w-full py-3 bg-[#CAFF33] hover:bg-[#b8e62e] active:scale-[0.99]
                text-black font-bold rounded-2xl text-xs transition-all uppercase

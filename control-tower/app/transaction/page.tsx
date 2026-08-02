@@ -7,11 +7,7 @@ import VisualAnalyticsCard from "../components/VisualAnalyticsCard";
 import { v4 as uuidv4 } from "uuid";
 
 
-const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_BASE_URL!;
-
-if (!BACKEND_BASE_URL) {
-  throw new Error("NEXT_PUBLIC_BACKEND_BASE_URL is not defined");
-}
+const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_BASE_URL ?? "http://localhost:8082";
 
 type ActiveTab = "unsupervised" | "ja3" | "supervised";
 

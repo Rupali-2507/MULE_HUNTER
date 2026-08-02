@@ -909,6 +909,19 @@ def network_snapshot(limit: int = 200) -> dict:
 # /v1/gnn/score — FULL CONTRACT ENDPOINT
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _resolve_node_id(account_id: str) -> str:
+    if not account_id:
+        return account_id
+    if account_id in id_map:
+        return account_id
+    prefix = account_id + "_"
+    for nid in id_map.keys():
+        if nid.startswith(prefix):
+            logger.info("Resolved prefix node ID: %s -> %s", account_id, nid)
+            return nid
+    return account_id
+
+
 @app.post("/v1/gnn/score", response_model=GnnScoreResponse)
 def gnn_score(request: GnnScoreRequest) -> GnnScoreResponse:
     """
@@ -927,6 +940,11 @@ def gnn_score(request: GnnScoreRequest) -> GnnScoreResponse:
     # ── Resolve source and destination ──────────────────────────────────────
     src_id = str(request.sourceAccountId).strip()
     tgt_id = str(request.targetAccountId).strip() if request.targetAccountId else None
+
+    # Resolve prefix/numeric IDs to full dataset node IDs
+    src_id = _resolve_node_id(src_id)
+    if tgt_id:
+        tgt_id = _resolve_node_id(tgt_id)
 
     if not src_id:
         raise HTTPException(422, "sourceAccountId must be a non-empty string")

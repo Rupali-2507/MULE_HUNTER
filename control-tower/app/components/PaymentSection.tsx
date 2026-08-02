@@ -787,10 +787,29 @@ export default function PaymentSection({
       upiId: toUpi,
     };
 
+    const getSessionJA3 = () => {
+      if (typeof window === "undefined") return "JA3_CHROME_120";
+      let ja3 = localStorage.getItem("JA3_FINGERPRINT");
+      if (!ja3) {
+        const ja3Profiles = [
+          "JA3_CHROME_120",
+          "JA3_FIREFOX_115",
+          "JA3_ANDROID_UPI",
+          "JA3_PYTHON_REQUESTS"
+        ];
+        ja3 = ja3Profiles[Math.floor(Math.random() * ja3Profiles.length)];
+        localStorage.setItem("JA3_FINGERPRINT", ja3);
+      }
+      return ja3;
+    };
+
     try {
       const res = await fetch(`${BACKEND_URL}/api/transactions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "X-JA3-Fingerprint": getSessionJA3()
+        },
         body: JSON.stringify(payload),
       });
 

@@ -33,7 +33,12 @@ public class AiRiskService {
             Long source, Long target, double amount,
             int suspiciousNeighborCount,
             double twoHopFraudDensity,
-            double connectivityScore) {
+            double connectivityScore,
+            int ja3ReuseCount,
+            int deviceReuseCount,
+            int ipReuseCount,
+            double velocity,
+            double burst) {
 
         // ── FIX: Use "sourceAccountId" (required by FastAPI GnnScoreRequest schema)
         //         Old code used "accountId" which is not in the schema → 422 error
@@ -43,11 +48,22 @@ public class AiRiskService {
                 "twoHopFraudDensity",      twoHopFraudDensity,
                 "connectivityScore",        connectivityScore
         );
+        Map<String, Object> identityFeatures = Map.of(
+                "ja3Reuse",    ja3ReuseCount,
+                "deviceReuse", deviceReuseCount,
+                "ipReuse",     ipReuseCount
+        );
+        Map<String, Object> behaviorFeatures = Map.of(
+                "velocity", velocity,
+                "burst",    burst
+        );
         Map<String, Object> payload = Map.of(
                 "sourceAccountId",   String.valueOf(source),
                 "targetAccountId",   String.valueOf(target),
                 "transactionAmount", amount,
-                "graphFeatures",     graphFeatures
+                "graphFeatures",     graphFeatures,
+                "identityFeatures",  identityFeatures,
+                "behaviorFeatures",  behaviorFeatures
         );
 
         System.out.printf("🤖 AI REQUEST → sourceAccountId=%s targetAccountId=%s amount=%.2f%n",

@@ -122,7 +122,12 @@ public class TransactionService {
                                                         sourceNodeId, targetNodeId, amount,
                                                         graph.getSuspiciousNeighborCount(),
                                                         graph.getTwoHopFraudDensity(),
-                                                        graph.getConnectivityScore())
+                                                        graph.getConnectivityScore(),
+                                                        savedTx.getJa3ReuseCount() == null ? 0 : savedTx.getJa3ReuseCount(),
+                                                        savedTx.getDeviceReuseCount() == null ? 0 : savedTx.getDeviceReuseCount(),
+                                                        savedTx.getIpReuseCount() == null ? 0 : savedTx.getIpReuseCount(),
+                                                        behavior.getTransactionVelocityScore(),
+                                                        behavior.getBurstScore())
                                                         .defaultIfEmpty(new AiRiskResult()),
 
                                                 ja3SecurityService.callJa3Risk(savedTx, ja3)
