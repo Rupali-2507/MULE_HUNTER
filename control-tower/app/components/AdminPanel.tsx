@@ -13,7 +13,11 @@ interface User {
 export default function AdminPanel({ initialUsers, session }: { initialUsers: User[], session: any }) {
   const [role, setRole] = useState('viewer');
   const [isPending, startTransition] = useTransition();
-  const roles = ['admin', 'investigator', 'viewer'];
+  const roles = [
+    { value: "admin", label: "Admin" },
+    { value: "investigator", label: "Investigator" },
+    { value: "viewer", label: "Integration Partner" },
+  ];
 
   async function clientAction(formData: FormData) {
     formData.append("role", role);
@@ -71,14 +75,16 @@ export default function AdminPanel({ initialUsers, session }: { initialUsers: Us
               <div className="flex p-1 bg-[#141414] rounded-lg border border-gray-800 gap-1">
                 {roles.map((r) => (
                   <button
-                    key={r}
+                    key={r.value}
                     type="button"
-                    onClick={() => setRole(r)}
+                    onClick={() => setRole(r.value)}
                     className={`flex-1 py-2 text-xs font-medium rounded-md transition-all ${
-                      role === r ? "bg-[#262626] text-[#CAFF33] border border-gray-700" : "text-gray-500"
+                      role === r.value
+                        ? "bg-[#262626] text-[#CAFF33] border border-gray-700"
+                        : "text-gray-500"
                     }`}
                   >
-                    {r}
+                    {r.label}
                   </button>
                 ))}
               </div>
@@ -102,7 +108,7 @@ export default function AdminPanel({ initialUsers, session }: { initialUsers: Us
               <input 
                 name="password" 
                 type="password" 
-                placeholder="Temporary Password" 
+                placeholder="Password" 
                 required
                 className="w-full bg-[#141414] border border-gray-800 p-3 rounded-lg text-sm focus:border-[#CAFF33] outline-none transition-all placeholder:text-gray-600" 
               />
@@ -113,7 +119,13 @@ export default function AdminPanel({ initialUsers, session }: { initialUsers: Us
               disabled={isPending}
               className="w-full bg-[#CAFF33] cursor-pointer hover:bg-[#afd149] py-3 rounded-lg font-bold text-black text-sm hover:brightness-110 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isPending ? "PROVISIONING..." : `CREATE ${role.toUpperCase()} ACCOUNT`}
+              {isPending
+              ? "PROVISIONING..."
+              : `CREATE ${
+                  role === "viewer"
+                    ? "INTEGRATION PARTNER"
+                    : role.toUpperCase()
+                } ACCOUNT`}
             </button>
           </form>
         </section>
@@ -139,7 +151,7 @@ export default function AdminPanel({ initialUsers, session }: { initialUsers: Us
                       ? 'text-[#CAFF33] border-[#CAFF33]/30 bg-[#CAFF33]/5' 
                       : 'text-gray-400 border-gray-700 bg-gray-800/20'
                   }`}>
-                    {user.role}
+                    {user.role === "viewer" ? "Integration Partner" : user.role}
                   </span>
                   {user.role !== "admin" && (
                     <button 

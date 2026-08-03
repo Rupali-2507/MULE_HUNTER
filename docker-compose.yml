@@ -9,26 +9,17 @@ services:
     ports:
       - "8001:8001"
     volumes:
-      - ./shared-data:/shared-data
+      - ./shared-data:/app/shared-data
     networks:
       - mulehunter-net
 
   visual-analytics:
     container_name: visual-analytics
     build:
-      context: ./visual-analytics
+      context: ./visual-analytics/eif_v_2
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
-    env_file:
-      - .env
-    environment:
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dummy}
-      BACKEND_BASE_URL: http://backend:8080
-      REQUEST_TIMEOUT: 60
-    volumes:
-      - ./visual-analytics/visualization:/app/visualization
-      - ./visual-analytics/scripts:/app/scripts
     networks:
       - mulehunter-net
 
@@ -48,12 +39,13 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "8082:8080"
+      - "8082:8082"
     environment:
       visual.internal-api-key: dummy
       security.service.url: http://security-forensics:8081
       ai.service.url: http://ai-engine:8001
       visual.service.url: http://visual-analytics:8000
+      spring.data.mongodb.uri: ${MONGODB_URI}
     depends_on:
       - security-forensics
       - ai-engine
@@ -74,7 +66,7 @@ services:
         NEXT_PUBLIC_EMAILJS_SERVICE_ID: dummy
         NEXT_PUBLIC_EMAILJS_TEMPLATE_ID: dummy
         NEXT_PUBLIC_EMAILJS_PUBLIC_KEY: dummy
-        MONGODB_URI: mongodb://dummy:dummy@localhost:27017/dummy
+        MONGODB_URI: ${MONGODB_URI}
     ports:
       - "3000:3000"
     environment:

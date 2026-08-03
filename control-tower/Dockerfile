@@ -2,7 +2,6 @@
 FROM node:20-alpine AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
-
 COPY package.json ./
 RUN npm config set fetch-retries 5 \
  && npm config set fetch-retry-mintimeout 20000 \
@@ -15,7 +14,6 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Accept variables from GitHub Actions
 ARG MONGODB_URI
 ARG NEXTAUTH_SECRET
 ARG NEXT_PUBLIC_BACKEND_BASE_URL
@@ -25,7 +23,6 @@ ARG NEXT_PUBLIC_EMAILJS_SERVICE_ID
 ARG NEXT_PUBLIC_EMAILJS_TEMPLATE_ID
 ARG NEXT_PUBLIC_EMAILJS_PUBLIC_KEY
 
-# Set them as Environment Variables for the Build
 ENV MONGODB_URI=$MONGODB_URI
 ENV NEXTAUTH_SECRET=$NEXTAUTH_SECRET
 ENV NEXT_PUBLIC_BACKEND_BASE_URL=$NEXT_PUBLIC_BACKEND_BASE_URL

@@ -36,7 +36,10 @@ const LoginForm = () => {
       
       if (actualRole === "admin") {
         router.push("/admin");
-      } else {
+      }else if(actualRole ==="investigator"){
+        router.push("/network");
+      } 
+      else {
         router.push("/dashboard");
       }
     } catch {
