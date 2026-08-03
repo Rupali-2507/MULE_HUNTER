@@ -20,7 +20,8 @@ public class WebConfig {
         config.setAllowCredentials(true);
         config.setAllowedOriginPatterns(Arrays.asList(
             "http://localhost:*",
-            "http://127.0.0.1:*"
+            "http://127.0.0.1:*",
+            "http://48f991e321da:3000"
         ));
         config.addAllowedHeader("*");
         config.addAllowedMethod("*");

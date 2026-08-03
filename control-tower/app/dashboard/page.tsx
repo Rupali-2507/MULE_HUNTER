@@ -393,7 +393,7 @@ function SimulatorSection() {
   ] : [];
 
   return (
-    <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[270px_1fr_210px] lg:gap-5 lg:h-full">
+    <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(300px,22%)_1fr_minmax(260px,20%)] lg:gap-5 lg:h-full">
       {/* Input Card */}
       <Card className="flex flex-col">
         <div className="p-5 sm:p-6 border-b border-white/[0.12]">
@@ -2141,12 +2141,12 @@ export default function FraudDashboard() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Desktop sidebar */}
-        <aside className="hidden lg:flex w-56 shrink-0 border-r border-white/[0.07] flex-col py-6 px-3 sticky top-0 h-screen overflow-y-auto bg-[#070707]">
+        <aside className="hidden lg:flex w-48 shrink-0 border-r border-white/[0.07] flex-col py-6 px-3 sticky top-0 h-screen overflow-y-auto bg-[#070707]">
           <SidebarContent />
         </aside>
 
         <main className="flex-1 overflow-y-auto bg-[#060606]">
-          <div className="max-w-[1300px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
+          <div className="w-full px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
             {SECTIONS[active]}
           </div>
         </main>

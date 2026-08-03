@@ -17,11 +17,10 @@ const KYC_DEADLINE_BLOCK_H  = 12;
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Decision = "APPROVE" | "REVIEW" | "BLOCK";
 
-// ✅ Fixed: matches actual backend response shape exactly
 interface TransactionResponse {
   transactionId: string;
   decision: Decision;
-  riskScore: number;          // was "finalRisk" — backend sends "riskScore"
+  riskScore: number;
   riskLevel: string;
   suspectedFraud: boolean;
 
@@ -60,7 +59,7 @@ interface TransactionResponse {
     ringAccounts: string[];
   };
 
-  riskFactors: string[];       // was "blockReason: string" — backend sends array
+  riskFactors: string[];
 
   ja3Security: {
     ja3Risk: number;
@@ -125,15 +124,15 @@ function fmtCountdown(ms: number): string {
 }
 
 function riskColor(score: number): string {
-  if (score < 0.45) return "#16a34a";
-  if (score < 0.75) return "#d97706";
-  return "#dc2626";
+  if (score < 0.45) return "#4ade80";
+  if (score < 0.75) return "#fbbf24";
+  return "#f87171";
 }
 
 function riskLabel(score: number): string {
-  if (score < 0.45) return "LOW RISK";
-  if (score < 0.75) return "MEDIUM RISK — REVIEW";
-  return "HIGH RISK — BLOCKED";
+  if (score < 0.45) return "Low risk";
+  if (score < 0.75) return "Medium risk — review";
+  return "High risk — blocked";
 }
 
 function uuid(): string {
@@ -149,96 +148,53 @@ function RiskGauge({ score }: { score: number }) {
   const pct = Math.min(1, Math.max(0, score)) * 100;
   const color = riskColor(score);
   return (
-    <div style={{ margin: "1rem 0" }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          fontSize: 11,
-          letterSpacing: "0.08em",
-          color: "#6b7280",
-          marginBottom: 6,
-          fontFamily: "monospace",
-        }}
-      >
-        <span>RISK SCORE</span>
-        <span style={{ color, fontWeight: 700 }}>
+    <div className="my-4">
+      <div className="flex justify-between text-[11px] text-gray-500 mb-1.5">
+        <span>Risk score</span>
+        <span style={{ color }} className="font-semibold">
           {(score * 100).toFixed(1)}% — {riskLabel(score)}
         </span>
       </div>
-      <div
-        style={{
-          height: 8,
-          borderRadius: 4,
-          background: "#1f2937",
-          overflow: "hidden",
-        }}
-      >
+      <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
         <div
-          style={{
-            height: "100%",
-            width: `${pct}%`,
-            background: color,
-            borderRadius: 4,
-            transition: "width 0.6s ease",
-          }}
+          className="h-full rounded-full transition-all duration-700 ease-out"
+          style={{ width: `${pct}%`, background: color }}
         />
       </div>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          fontSize: 10,
-          color: "#4b5563",
-          marginTop: 4,
-          fontFamily: "monospace",
-        }}
-      >
-        <span>0 — SAFE</span>
-        <span style={{ color: "#d97706" }}>0.45 REVIEW</span>
-        <span style={{ color: "#dc2626" }}>0.75 BLOCK</span>
+      <div className="flex justify-between text-[10px] text-gray-600 mt-1">
+        <span>0 — Safe</span>
+        <span className="text-amber-500">0.45 Review</span>
+        <span className="text-red-500">0.75 Block</span>
       </div>
     </div>
   );
 }
 
-// ✅ Fixed: reads from nested modelScores, uses riskScore for final
 function ScoreBreakdown({ result }: { result: TransactionResponse }) {
   const rows = [
-    { label: "GNN (graph network)", value: result.modelScores?.gnn,      weight: "40%" },
-    { label: "EIF (anomaly forest)", value: result.modelScores?.eif,     weight: "20%" },
+    { label: "GNN (graph network)", value: result.modelScores?.gnn,       weight: "40%" },
+    { label: "EIF (anomaly forest)", value: result.modelScores?.eif,      weight: "20%" },
     { label: "Behavior",             value: result.modelScores?.behavior, weight: "25%" },
     { label: "Graph",                value: result.modelScores?.graph,    weight: "15%" },
     { label: "Final composite",      value: result.riskScore,             weight: "—"   },
   ];
   return (
-    <table
-      style={{
-        width: "100%",
-        fontSize: 12,
-        borderCollapse: "collapse",
-        fontFamily: "monospace",
-        marginTop: 8,
-      }}
-    >
+    <table className="w-full text-xs mt-2 border-collapse">
       <thead>
-        <tr style={{ borderBottom: "1px solid #374151" }}>
-          <th style={{ textAlign: "left",   color: "#6b7280", fontWeight: 400, padding: "4px 0" }}>Signal</th>
-          <th style={{ textAlign: "center", color: "#6b7280", fontWeight: 400 }}>Weight</th>
-          <th style={{ textAlign: "right",  color: "#6b7280", fontWeight: 400 }}>Score</th>
+        <tr className="border-b border-gray-800">
+          <th className="text-left font-normal text-gray-500 py-1.5">Signal</th>
+          <th className="text-center font-normal text-gray-500">Weight</th>
+          <th className="text-right font-normal text-gray-500">Score</th>
         </tr>
       </thead>
       <tbody>
         {rows.map((r) => (
-          <tr key={r.label} style={{ borderBottom: "1px solid #1f2937" }}>
-            <td style={{ color: "#d1d5db", padding: "5px 0" }}>{r.label}</td>
-            <td style={{ textAlign: "center", color: "#9ca3af" }}>{r.weight}</td>
+          <tr key={r.label} className="border-b border-gray-800/60">
+            <td className="text-gray-300 py-1.5">{r.label}</td>
+            <td className="text-center text-gray-500">{r.weight}</td>
             <td
-              style={{
-                textAlign: "right",
-                fontWeight: r.label.includes("Final") ? 700 : 400,
-                color: r.value !== undefined ? riskColor(r.value) : "#9ca3af",
-              }}
+              className={`text-right ${r.label.includes("Final") ? "font-semibold" : ""}`}
+              style={{ color: r.value !== undefined ? riskColor(r.value) : "#6b7280" }}
             >
               {r.value !== undefined ? (r.value * 100).toFixed(2) : "—"}
             </td>
@@ -249,111 +205,88 @@ function ScoreBreakdown({ result }: { result: TransactionResponse }) {
   );
 }
 
-// ── Extra detail panel (new) ──────────────────────────────────────────────────
 function DetailPanel({ result }: { result: TransactionResponse }) {
   const [open, setOpen] = useState(false);
   return (
-    <div style={{ marginTop: 12 }}>
+    <div className="mt-3">
       <button
         onClick={() => setOpen((p) => !p)}
-        style={{
-          background: "transparent",
-          border: "1px solid #374151",
-          borderRadius: 6,
-          color: "#6b7280",
-          fontSize: 11,
-          padding: "4px 10px",
-          cursor: "pointer",
-          fontFamily: "monospace",
-          letterSpacing: "0.05em",
-        }}
+        className="border border-gray-800 rounded-lg text-gray-500 text-[11px] px-3 py-1 hover:border-gray-700 hover:text-gray-300 transition-colors"
       >
-        {open ? "▲ HIDE DETAILS" : "▼ SHOW DETAILS"}
+        {open ? "▲ Hide details" : "▼ Show details"}
       </button>
 
       {open && (
-        <div style={{ marginTop: 10, fontSize: 11, fontFamily: "monospace", color: "#9ca3af" }}>
-
-          {/* Network metrics */}
-          <p style={{ color: "#6b7280", margin: "8px 0 4px", letterSpacing: "0.06em" }}>
-            NETWORK METRICS
-          </p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px" }}>
-            <span>Suspicious neighbors</span>
-            <span style={{ color: "#f9fafb", textAlign: "right" }}>
-              {result.networkMetrics?.suspiciousNeighbors ?? "—"}
-            </span>
-            <span>Shared devices</span>
-            <span style={{ color: "#f9fafb", textAlign: "right" }}>
-              {result.networkMetrics?.sharedDevices ?? "—"}
-            </span>
-            <span>Shared IPs</span>
-            <span style={{ color: "#f9fafb", textAlign: "right" }}>
-              {result.networkMetrics?.sharedIPs ?? "—"}
-            </span>
+        <div className="mt-3 text-[11px] text-gray-400 space-y-4">
+          <div>
+            <p className="text-gray-500 mb-1.5">Network metrics</p>
+            <div className="grid grid-cols-2 gap-y-1 gap-x-4">
+              <span>Suspicious neighbors</span>
+              <span className="text-gray-100 text-right">
+                {result.networkMetrics?.suspiciousNeighbors ?? "—"}
+              </span>
+              <span>Shared devices</span>
+              <span className="text-gray-100 text-right">
+                {result.networkMetrics?.sharedDevices ?? "—"}
+              </span>
+              <span>Shared IPs</span>
+              <span className="text-gray-100 text-right">
+                {result.networkMetrics?.sharedIPs ?? "—"}
+              </span>
+            </div>
           </div>
 
-          {/* Mule ring */}
-          <p style={{ color: "#6b7280", margin: "10px 0 4px", letterSpacing: "0.06em" }}>
-            MULE RING DETECTION
-          </p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px" }}>
-            <span>Ring member</span>
-            <span style={{ color: result.muleRingDetection?.isMuleRingMember ? "#f87171" : "#4ade80", textAlign: "right" }}>
-              {result.muleRingDetection?.isMuleRingMember ? "YES" : "NO"}
-            </span>
-            <span>Role</span>
-            <span style={{ color: "#f9fafb", textAlign: "right" }}>
-              {result.muleRingDetection?.role ?? "—"}
-            </span>
-            <span>Ring shape</span>
-            <span style={{ color: "#f9fafb", textAlign: "right" }}>
-              {result.muleRingDetection?.ringShape ?? "—"}
-            </span>
-            <span>Ring size</span>
-            <span style={{ color: "#f9fafb", textAlign: "right" }}>
-              {result.muleRingDetection?.ringSize ?? "—"}
-            </span>
+          <div>
+            <p className="text-gray-500 mb-1.5">Mule ring detection</p>
+            <div className="grid grid-cols-2 gap-y-1 gap-x-4">
+              <span>Ring member</span>
+              <span
+                className="text-right"
+                style={{ color: result.muleRingDetection?.isMuleRingMember ? "#f87171" : "#4ade80" }}
+              >
+                {result.muleRingDetection?.isMuleRingMember ? "Yes" : "No"}
+              </span>
+              <span>Role</span>
+              <span className="text-gray-100 text-right">{result.muleRingDetection?.role ?? "—"}</span>
+              <span>Ring shape</span>
+              <span className="text-gray-100 text-right">{result.muleRingDetection?.ringShape ?? "—"}</span>
+              <span>Ring size</span>
+              <span className="text-gray-100 text-right">{result.muleRingDetection?.ringSize ?? "—"}</span>
+            </div>
           </div>
 
-          {/* JA3 */}
-          <p style={{ color: "#6b7280", margin: "10px 0 4px", letterSpacing: "0.06em" }}>
-            JA3 SECURITY
-          </p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px" }}>
-            <span>JA3 detected</span>
-            <span style={{ color: result.ja3Security?.ja3Detected ? "#f87171" : "#4ade80", textAlign: "right" }}>
-              {result.ja3Security?.ja3Detected ? "YES" : "NO"}
-            </span>
-            <span>JA3 risk</span>
-            <span style={{ color: "#f9fafb", textAlign: "right" }}>
-              {result.ja3Security?.ja3Risk?.toFixed(3) ?? "—"}
-            </span>
-            <span>New device</span>
-            <span style={{ color: "#f9fafb", textAlign: "right" }}>
-              {result.ja3Security?.isNewDevice ? "YES" : "NO"}
-            </span>
+          <div>
+            <p className="text-gray-500 mb-1.5">JA3 security</p>
+            <div className="grid grid-cols-2 gap-y-1 gap-x-4">
+              <span>JA3 detected</span>
+              <span
+                className="text-right"
+                style={{ color: result.ja3Security?.ja3Detected ? "#f87171" : "#4ade80" }}
+              >
+                {result.ja3Security?.ja3Detected ? "Yes" : "No"}
+              </span>
+              <span>JA3 risk</span>
+              <span className="text-gray-100 text-right">
+                {result.ja3Security?.ja3Risk?.toFixed(3) ?? "—"}
+              </span>
+              <span>New device</span>
+              <span className="text-gray-100 text-right">
+                {result.ja3Security?.isNewDevice ? "Yes" : "No"}
+              </span>
+            </div>
           </div>
 
-          {/* EIF explanation */}
           {result.modelScores?.eifExplanation && (
-            <>
-              <p style={{ color: "#6b7280", margin: "10px 0 4px", letterSpacing: "0.06em" }}>
-                EIF EXPLANATION
-              </p>
-              <p style={{ color: "#d1d5db", margin: 0, lineHeight: 1.5 }}>
-                {result.modelScores.eifExplanation}
-              </p>
-            </>
+            <div>
+              <p className="text-gray-500 mb-1.5">EIF explanation</p>
+              <p className="text-gray-300 leading-relaxed">{result.modelScores.eifExplanation}</p>
+            </div>
           )}
 
-          {/* Embedding norm */}
-          <p style={{ color: "#6b7280", margin: "10px 0 4px", letterSpacing: "0.06em" }}>
-            EMBEDDING NORM
-          </p>
-          <span style={{ color: "#f9fafb" }}>
-            {result.embeddingNorm?.toFixed(4) ?? "—"}
-          </span>
+          <div>
+            <p className="text-gray-500 mb-1.5">Embedding norm</p>
+            <span className="text-gray-100">{result.embeddingNorm?.toFixed(4) ?? "—"}</span>
+          </div>
         </div>
       )}
     </div>
@@ -373,7 +306,7 @@ function KycBanner({ kyc, onCompleteKyc }: KycBannerProps) {
   useEffect(() => {
     setMounted(true);
     setCountdown(fmtCountdown(msLeft(kyc.deadlineIso)));
-    
+
     const t = setInterval(() => {
       setCountdown(fmtCountdown(msLeft(kyc.deadlineIso)));
     }, 1000);
@@ -384,87 +317,54 @@ function KycBanner({ kyc, onCompleteKyc }: KycBannerProps) {
   const isBlock = kyc.status === "pending_block" || kyc.accountBlocked;
   const overdue = msLeft(kyc.deadlineIso) <= 0;
 
-  const bannerBg     = isBlock ? "#450a0a" : "#451a03";
-  const bannerBorder = isBlock ? "#dc2626" : "#d97706";
-  const icon         = isBlock ? "🔴" : "🟡";
-
   return (
     <div
-      style={{
-        background: bannerBg,
-        border: `1px solid ${bannerBorder}`,
-        borderRadius: 10,
-        padding: "1rem 1.25rem",
-        marginBottom: "1.25rem",
-        fontFamily: "monospace",
-      }}
+      className={`rounded-xl p-4 mb-5 border ${
+        isBlock ? "bg-red-950/40 border-red-600/60" : "bg-amber-950/30 border-amber-500/50"
+      }`}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-        <span style={{ fontSize: 18 }}>{icon}</span>
-        <span
-          style={{
-            fontSize: 13,
-            fontWeight: 700,
-            color: isBlock ? "#fca5a5" : "#fcd34d",
-            letterSpacing: "0.06em",
-          }}
-        >
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-base">{isBlock ? "🔴" : "🟡"}</span>
+        <span className={`text-[13px] font-semibold ${isBlock ? "text-red-300" : "text-amber-300"}`}>
           {isBlock
             ? overdue
-              ? "KYC OVERDUE — ACCOUNT SUSPENDED"
-              : "ACTION REQUIRED: COMPLETE KYC WITHIN 12 HOURS"
+              ? "KYC overdue — account suspended"
+              : "Action required: complete KYC within 12 hours"
             : overdue
-            ? "KYC REVIEW OVERDUE"
-            : "ACTION REQUIRED: COMPLETE KYC WITHIN 24 HOURS"}
+            ? "KYC review overdue"
+            : "Action required: complete KYC within 24 hours"}
         </span>
       </div>
 
-      <p style={{ fontSize: 12, color: "#d1d5db", margin: "0 0 10px", lineHeight: 1.6 }}>
+      <p className="text-xs text-gray-300 leading-relaxed mb-3">
         {isBlock
-          ? `A high-risk transaction flagged your account. ALL UPI transactions are suspended
-             until KYC is verified. 
-             ${overdue ? `Additional overdue penalty: ₹${PENALTY_KYC_MISS_BLOCK.toLocaleString("en-IN")} levied.` : ""}`
-          : `A transaction triggered a fraud review. You may continue using UPI but KYC must
-             be completed within 24 hours. 
-             ${overdue ? `Additional overdue penalty: ₹${PENALTY_KYC_MISS_REVIEW.toLocaleString("en-IN")} levied.` : ""}`}
+          ? `A high-risk transaction flagged your account. All UPI transactions are suspended until KYC is verified. ${
+              overdue ? `Additional overdue penalty: ₹${PENALTY_KYC_MISS_BLOCK.toLocaleString("en-IN")} levied.` : ""
+            }`
+          : `A transaction triggered a fraud review. You may continue using UPI but KYC must be completed within 24 hours. ${
+              overdue ? `Additional overdue penalty: ₹${PENALTY_KYC_MISS_REVIEW.toLocaleString("en-IN")} levied.` : ""
+            }`}
       </p>
 
       {!overdue && (
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-          <span style={{ fontSize: 11, color: "#9ca3af" }}>TIME REMAINING</span>
-          <span
-            style={{
-              fontSize: 22,
-              fontWeight: 700,
-              color: isBlock ? "#f87171" : "#fbbf24",
-              letterSpacing: "0.12em",
-            }}
-          >
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-[11px] text-gray-500">Time remaining</span>
+          <span className={`text-xl font-bold tracking-wider ${isBlock ? "text-red-400" : "text-amber-400"}`}>
             {countdown}
           </span>
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 10 }}>
+      <div className="flex items-center gap-3">
         <button
           onClick={onCompleteKyc}
-          style={{
-            background: isBlock ? "#dc2626" : "#d97706",
-            color: "#fff",
-            border: "none",
-            borderRadius: 7,
-            padding: "8px 18px",
-            fontSize: 12,
-            fontWeight: 700,
-            cursor: "pointer",
-            letterSpacing: "0.05em",
-          }}
+          className={`text-white text-xs font-semibold rounded-lg px-4 py-2 transition-colors ${
+            isBlock ? "bg-red-600 hover:bg-red-500" : "bg-amber-600 hover:bg-amber-500"
+          }`}
         >
-          COMPLETE KYC NOW →
+          Complete KYC now →
         </button>
-        <span style={{ fontSize: 11, color: "#6b7280", alignSelf: "center" }}>
-          Ref: {kyc.triggeredBy?.slice(0, 12)}…
-        </span>
+        <span className="text-[11px] text-gray-500">Ref: {kyc.triggeredBy?.slice(0, 12)}…</span>
       </div>
     </div>
   );
@@ -472,9 +372,9 @@ function KycBanner({ kyc, onCompleteKyc }: KycBannerProps) {
 
 // ── KYC Modal ─────────────────────────────────────────────────────────────────
 function KycModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
-  const [step, setStep]     = useState<"form" | "verifying" | "done">("form");
+  const [step, setStep] = useState<"form" | "verifying" | "done">("form");
   const [aadhaar, setAadhaar] = useState("");
-  const [pan, setPan]       = useState("");
+  const [pan, setPan] = useState("");
   const [selfie, setSelfie] = useState(false);
 
   async function submit() {
@@ -486,137 +386,51 @@ function KycModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () =
   }
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.75)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 9999,
-      }}
-    >
-      <div
-        style={{
-          background: "#111827",
-          border: "1px solid #374151",
-          borderRadius: 14,
-          padding: "1.75rem",
-          width: 400,
-          fontFamily: "monospace",
-        }}
-      >
+    <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-[9999] px-4">
+      <div className="bg-[#12141a] border border-gray-800 rounded-2xl p-7 w-full max-w-[400px]">
         {step === "form" && (
           <>
-            <h2
-              style={{
-                color: "#f9fafb",
-                fontSize: 16,
-                fontWeight: 700,
-                marginBottom: 18,
-                letterSpacing: "0.05em",
-              }}
-            >
-              KYC VERIFICATION
-            </h2>
+            <h2 className="text-white text-base font-semibold mb-5">KYC Verification</h2>
 
-            <label style={{ fontSize: 11, color: "#9ca3af", display: "block", marginBottom: 4 }}>
-              AADHAAR NUMBER (12 digits)
-            </label>
+            <label className="text-[11px] text-gray-500 block mb-1.5">Aadhaar number (12 digits)</label>
             <input
               maxLength={12}
               value={aadhaar}
               onChange={(e) => setAadhaar(e.target.value)}
               placeholder="1234 5678 9012"
-              style={{
-                width: "100%",
-                background: "#1f2937",
-                border: "1px solid #374151",
-                borderRadius: 7,
-                color: "#f9fafb",
-                padding: "8px 12px",
-                fontSize: 14,
-                marginBottom: 14,
-                boxSizing: "border-box",
-                letterSpacing: "0.1em",
-                outline: "none",
-              }}
+              className="w-full bg-[#1a1d24] border border-gray-800 rounded-xl text-white text-sm px-3.5 py-2.5 mb-4 outline-none focus:border-[#CAFF33]/60 transition-colors"
             />
 
-            <label style={{ fontSize: 11, color: "#9ca3af", display: "block", marginBottom: 4 }}>
-              PAN NUMBER
-            </label>
+            <label className="text-[11px] text-gray-500 block mb-1.5">PAN number</label>
             <input
               maxLength={10}
               value={pan}
               onChange={(e) => setPan(e.target.value.toUpperCase())}
               placeholder="ABCDE1234F"
-              style={{
-                width: "100%",
-                background: "#1f2937",
-                border: "1px solid #374151",
-                borderRadius: 7,
-                color: "#f9fafb",
-                padding: "8px 12px",
-                fontSize: 14,
-                marginBottom: 14,
-                boxSizing: "border-box",
-                letterSpacing: "0.15em",
-                outline: "none",
-              }}
+              className="w-full bg-[#1a1d24] border border-gray-800 rounded-xl text-white text-sm px-3.5 py-2.5 mb-4 outline-none focus:border-[#CAFF33]/60 transition-colors"
             />
 
-            <label
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                fontSize: 12,
-                color: "#d1d5db",
-                marginBottom: 20,
-                cursor: "pointer",
-              }}
-            >
+            <label className="flex items-center gap-2.5 text-xs text-gray-300 mb-5 cursor-pointer">
               <input
                 type="checkbox"
                 checked={selfie}
                 onChange={(e) => setSelfie(e.target.checked)}
+                className="accent-[#CAFF33]"
               />
               I consent to liveness / selfie verification
             </label>
 
-            <div style={{ display: "flex", gap: 10 }}>
+            <div className="flex gap-2.5">
               <button
                 onClick={submit}
                 disabled={!aadhaar || !pan || !selfie}
-                style={{
-                  flex: 1,
-                  background: "#1d4ed8",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 7,
-                  padding: "10px 0",
-                  fontSize: 13,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  opacity: !aadhaar || !pan || !selfie ? 0.45 : 1,
-                  letterSpacing: "0.05em",
-                }}
+                className="flex-1 bg-[#CAFF33] text-black rounded-xl py-2.5 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-95 transition"
               >
-                SUBMIT FOR VERIFICATION
+                Submit for verification
               </button>
               <button
                 onClick={onClose}
-                style={{
-                  background: "#1f2937",
-                  color: "#9ca3af",
-                  border: "1px solid #374151",
-                  borderRadius: 7,
-                  padding: "10px 16px",
-                  fontSize: 12,
-                  cursor: "pointer",
-                }}
+                className="bg-[#1a1d24] text-gray-400 border border-gray-800 rounded-xl px-4 py-2.5 text-xs hover:text-gray-200 transition-colors"
               >
                 Cancel
               </button>
@@ -625,48 +439,19 @@ function KycModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () =
         )}
 
         {step === "verifying" && (
-          <div style={{ textAlign: "center", padding: "2rem 0" }}>
-            <div
-              style={{
-                width: 40,
-                height: 40,
-                border: "3px solid #1d4ed8",
-                borderTopColor: "transparent",
-                borderRadius: "50%",
-                animation: "spin 0.8s linear infinite",
-                margin: "0 auto 16px",
-              }}
-            />
-            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-            <p style={{ color: "#d1d5db", fontSize: 13 }}>
-              Verifying identity with UIDAI & NSDL…
-            </p>
+          <div className="text-center py-8">
+            <div className="w-10 h-10 border-[3px] border-[#CAFF33] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-gray-300 text-sm">Verifying identity with UIDAI & NSDL…</p>
           </div>
         )}
 
         {step === "done" && (
-          <div style={{ textAlign: "center", padding: "2rem 0" }}>
-            <div
-              style={{
-                width: 48,
-                height: 48,
-                background: "#14532d",
-                borderRadius: "50%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                margin: "0 auto 16px",
-                fontSize: 24,
-              }}
-            >
+          <div className="text-center py-8">
+            <div className="w-12 h-12 bg-green-900/40 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl">
               ✓
             </div>
-            <p style={{ color: "#4ade80", fontSize: 14, fontWeight: 700 }}>
-              KYC VERIFIED SUCCESSFULLY
-            </p>
-            <p style={{ color: "#9ca3af", fontSize: 12, marginTop: 6 }}>
-              All services restored. Restrictions lifted.
-            </p>
+            <p className="text-green-400 text-sm font-semibold">KYC verified successfully</p>
+            <p className="text-gray-500 text-xs mt-1.5">All services restored. Restrictions lifted.</p>
           </div>
         )}
       </div>
@@ -680,14 +465,14 @@ export default function PaymentSection({
 }: {
   currentUserAccount?: string;
 }) {
-  const [toUpi, setToUpi]     = useState("");
+  const [toUpi, setToUpi] = useState("");
   const [toAccount, setToAccount] = useState("");
-  const [amount, setAmount]   = useState("");
-  const [note, setNote]       = useState("");
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
 
-  const [loading, setLoading]         = useState(false);
-  const [result, setResult]           = useState<TransactionResponse | null>(null);
-  const [error, setError]             = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<TransactionResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [showKycModal, setShowKycModal] = useState(false);
 
   const [kyc, setKyc] = useState<KycState>(EMPTY_KYC);
@@ -708,9 +493,7 @@ export default function PaymentSection({
         msLeft(cur.deadlineIso) <= 0
       ) {
         const extra =
-          cur.status === "pending_block"
-            ? PENALTY_KYC_MISS_BLOCK
-            : PENALTY_KYC_MISS_REVIEW;
+          cur.status === "pending_block" ? PENALTY_KYC_MISS_BLOCK : PENALTY_KYC_MISS_REVIEW;
         const updated: KycState = {
           ...cur,
           status: "overdue",
@@ -730,11 +513,8 @@ export default function PaymentSection({
     (decision: Decision, txId: string) => {
       if (decision === "APPROVE") return;
 
-      const hoursDeadline =
-        decision === "BLOCK" ? KYC_DEADLINE_BLOCK_H : KYC_DEADLINE_REVIEW_H;
-      const deadline = new Date(
-        Date.now() + hoursDeadline * 60 * 60 * 1000
-      ).toISOString();
+      const hoursDeadline = decision === "BLOCK" ? KYC_DEADLINE_BLOCK_H : KYC_DEADLINE_REVIEW_H;
+      const deadline = new Date(Date.now() + hoursDeadline * 60 * 60 * 1000).toISOString();
       const penalty = decision === "BLOCK" ? PENALTY_BLOCK : PENALTY_REVIEW;
 
       const updated: KycState = {
@@ -782,7 +562,7 @@ export default function PaymentSection({
       sourceAccount: currentUserAccount,
       targetAccount: toAccount,
       amount: parseFloat(amount),
-      timestamp: new Date().toISOString(), // "2026-04-11T16:44:43.701Z"
+      timestamp: new Date().toISOString(),
       note,
       upiId: toUpi,
     };
@@ -791,12 +571,7 @@ export default function PaymentSection({
       if (typeof window === "undefined") return "JA3_CHROME_120";
       let ja3 = localStorage.getItem("JA3_FINGERPRINT");
       if (!ja3) {
-        const ja3Profiles = [
-          "JA3_CHROME_120",
-          "JA3_FIREFOX_115",
-          "JA3_ANDROID_UPI",
-          "JA3_PYTHON_REQUESTS"
-        ];
+        const ja3Profiles = ["JA3_CHROME_120", "JA3_FIREFOX_115", "JA3_ANDROID_UPI", "JA3_PYTHON_REQUESTS"];
         ja3 = ja3Profiles[Math.floor(Math.random() * ja3Profiles.length)];
         localStorage.setItem("JA3_FINGERPRINT", ja3);
       }
@@ -806,9 +581,9 @@ export default function PaymentSection({
     try {
       const res = await fetch(`${BACKEND_URL}/api/transactions`, {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
-          "X-JA3-Fingerprint": getSessionJA3()
+          "X-JA3-Fingerprint": getSessionJA3(),
         },
         body: JSON.stringify(payload),
       });
@@ -820,8 +595,6 @@ export default function PaymentSection({
 
       const data: TransactionResponse = await res.json();
       setResult(data);
-
-      // ✅ Fixed: decision is always present, no fallback needed
       applyKycState(data.decision, data.transactionId);
 
       if (data.decision === "APPROVE") {
@@ -837,346 +610,144 @@ export default function PaymentSection({
     }
   }
 
+  const inputClass =
+    "w-full bg-[#1a1d24] border border-gray-800 rounded-xl text-white text-sm px-4 py-3 outline-none placeholder-gray-500 focus:border-[#CAFF33]/60 transition-colors";
+
   return (
-    <div
-      style={{
-        maxWidth: 540,
-        margin: "0 auto",
-        fontFamily: "'Courier New', Courier, monospace",
-        color: "#f9fafb",
-      }}
-    >
-      <h2
-        style={{
-          fontSize: 16,
-          fontWeight: 700,
-          letterSpacing: "0.12em",
-          marginBottom: 18,
-          color: "#f9fafb",
-        }}
-      >
-        ▶ UPI PAYMENT
-      </h2>
+    <div className="w-full max-w-[540px] mx-auto">
+      {/* Header */}
+      <div className="mb-5">
+        <h2 className="text-white text-lg font-bold">UPI Payment</h2>
+        <p className="text-gray-500 text-xs mt-1">
+          Send money securely — every transaction is screened in real time.
+        </p>
+      </div>
 
-      <KycBanner
-        kyc={kyc}
-        account={currentUserAccount}
-        onCompleteKyc={() => setShowKycModal(true)}
-      />
-
-      
+      <KycBanner kyc={kyc} account={currentUserAccount} onCompleteKyc={() => setShowKycModal(true)} />
 
       {/* Payment form */}
       <div
-        style={{
-          background: "#111827",
-          border: "1px solid #1f2937",
-          borderRadius: 12,
-          padding: "1.25rem",
-          marginBottom: "1.25rem",
-          opacity: accountBlocked ? 0.45 : 1,
-          pointerEvents: accountBlocked ? "none" : "auto",
-        }}
+        className={`space-y-4 ${accountBlocked ? "opacity-40 pointer-events-none" : ""}`}
       >
-        <div style={{ marginBottom: 14 }}>
-          <label
-            style={{
-              fontSize: 11,
-              color: "#6b7280",
-              display: "block",
-              marginBottom: 5,
-              letterSpacing: "0.08em",
-            }}
-          >
-            UPI ID (optional)
-          </label>
-          <input
-            value={toUpi}
-            onChange={(e) => setToUpi(e.target.value)}
-            placeholder="e.g. name@upi"
-            style={{
-              width: "100%",
-              background: "#1f2937",
-              border: "1px solid #374151",
-              borderRadius: 7,
-              color: "#f9fafb",
-              padding: "9px 12px",
-              fontSize: 13,
-              boxSizing: "border-box",
-              outline: "none",
-            }}
-          />
-        </div>
+        <input
+          value={toUpi}
+          onChange={(e) => setToUpi(e.target.value)}
+          placeholder="UPI ID: e.g. name@upi"
+          className={inputClass}
+        />
 
-        <div style={{ marginBottom: 14 }}>
-          <label
-            style={{
-              fontSize: 11,
-              color: "#6b7280",
-              display: "block",
-              marginBottom: 5,
-              letterSpacing: "0.08em",
-            }}
-          >
-            RECIPIENT ACCOUNT ID *
-          </label>
+        <div>
           <input
             value={toAccount}
             onChange={(e) => setToAccount(e.target.value.replace(/\D/g, ""))}
-            placeholder="Numeric account ID"
-            style={{
-              width: "100%",
-              background: "#1f2937",
-              border: "1px solid #374151",
-              borderRadius: 7,
-              color: "#f9fafb",
-              padding: "9px 12px",
-              fontSize: 13,
-              boxSizing: "border-box",
-              outline: "none",
-            }}
+            placeholder="Recipient account ID *"
+            className={inputClass}
           />
-          <p style={{ fontSize: 10, color: "#4b5563", margin: "4px 0 0" }}>
+          <p className="text-[10px] text-gray-600 mt-1.5 px-1">
             Must be a numeric graph node ID as used in the backend.
           </p>
         </div>
 
-        <div style={{ marginBottom: 14 }}>
-          <label
-            style={{
-              fontSize: 11,
-              color: "#6b7280",
-              display: "block",
-              marginBottom: 5,
-              letterSpacing: "0.08em",
-            }}
-          >
-            AMOUNT (₹) *
-          </label>
-          <input
-            type="number"
-            min="1"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="0.00"
-            style={{
-              width: "100%",
-              background: "#1f2937",
-              border: "1px solid #374151",
-              borderRadius: 7,
-              color: "#f9fafb",
-              padding: "9px 12px",
-              fontSize: 20,
-              fontWeight: 700,
-              boxSizing: "border-box",
-              outline: "none",
-              letterSpacing: "0.04em",
-            }}
-          />
-        </div>
+        <input
+          type="number"
+          min="1"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="Amount (₹) *"
+          className={`${inputClass} text-lg font-semibold`}
+        />
 
-        <div style={{ marginBottom: 18 }}>
-          <label
-            style={{
-              fontSize: 11,
-              color: "#6b7280",
-              display: "block",
-              marginBottom: 5,
-              letterSpacing: "0.08em",
-            }}
-          >
-            NOTE (optional)
-          </label>
-          <input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Payment for…"
-            style={{
-              width: "100%",
-              background: "#1f2937",
-              border: "1px solid #374151",
-              borderRadius: 7,
-              color: "#f9fafb",
-              padding: "9px 12px",
-              fontSize: 13,
-              boxSizing: "border-box",
-              outline: "none",
-            }}
-          />
-        </div>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Note (optional) — Payment for…"
+          rows={3}
+          className={`${inputClass} resize-none`}
+        />
 
         <button
           onClick={submitPayment}
           disabled={loading}
-          style={{
-            width: "100%",
-            background: loading ? "#1e3a5f" : "#1d4ed8",
-            color: "#fff",
-            border: "none",
-            borderRadius: 8,
-            padding: "12px 0",
-            fontSize: 14,
-            fontWeight: 700,
-            cursor: loading ? "default" : "pointer",
-            letterSpacing: "0.1em",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 10,
-            transition: "background 0.2s",
-          }}
+          className={`w-full rounded-xl py-3.5 text-sm font-bold flex items-center justify-center gap-2.5 transition-colors ${
+            loading ? "bg-[#CAFF33]/40 text-black/60 cursor-default" : "bg-[#CAFF33] text-black hover:brightness-95"
+          }`}
         >
           {loading ? (
             <>
-              <span
-                style={{
-                  width: 16,
-                  height: 16,
-                  border: "2px solid #93c5fd",
-                  borderTopColor: "transparent",
-                  borderRadius: "50%",
-                  display: "inline-block",
-                  animation: "spin 0.7s linear infinite",
-                }}
-              />
-              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-              RUNNING MULE HUNTER…
+              <span className="w-4 h-4 border-2 border-black/50 border-t-transparent rounded-full animate-spin" />
+              Running MuleHunter…
             </>
           ) : (
-            "SEND & VERIFY →"
+            <>Send & Verify →</>
           )}
         </button>
       </div>
 
       {/* Error */}
       {error && (
-        <div
-          style={{
-            background: "#450a0a",
-            border: "1px solid #dc2626",
-            borderRadius: 8,
-            padding: "10px 14px",
-            fontSize: 12,
-            color: "#fca5a5",
-            marginBottom: 14,
-          }}
-        >
+        <div className="mt-4 bg-red-950/40 border border-red-600/60 rounded-xl px-4 py-2.5 text-xs text-red-300">
           ✗ {error}
         </div>
       )}
 
-      {/* ✅ Result card — uses riskScore, modelScores.*, riskFactors[] */}
+      {/* Result card */}
       {result && (
         <div
-          style={{
-            background: "#0f172a",
-            border: `1px solid ${riskColor(result.riskScore)}`,
-            borderRadius: 12,
-            padding: "1.25rem",
-            fontSize: 12,
-          }}
+          className="mt-5 rounded-2xl p-5 text-xs bg-[#0f172a] border"
+          style={{ borderColor: riskColor(result.riskScore) }}
         >
-          {/* Header */}
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: 12,
-            }}
-          >
-            <span
-              style={{
-                fontSize: 13,
-                fontWeight: 700,
-                color: riskColor(result.riskScore),
-                letterSpacing: "0.1em",
-              }}
-            >
-              {result.decision === "APPROVE" && "✓ TRANSACTION APPROVED"}
-              {result.decision === "REVIEW"  && "⚠ FLAGGED FOR REVIEW"}
-              {result.decision === "BLOCK"   && "✗ TRANSACTION BLOCKED"}
+          <div className="flex justify-between items-center mb-3">
+            <span className="text-[13px] font-bold" style={{ color: riskColor(result.riskScore) }}>
+              {result.decision === "APPROVE" && "✓ Transaction approved"}
+              {result.decision === "REVIEW" && "⚠ Flagged for review"}
+              {result.decision === "BLOCK" && "✗ Transaction blocked"}
             </span>
-            <span style={{ color: "#4b5563", fontSize: 10 }}>
-              {result.transactionId?.slice(0, 8)}…
-            </span>
+            <span className="text-gray-600 text-[10px]">{result.transactionId?.slice(0, 8)}…</span>
           </div>
 
-          {/* Risk gauge — ✅ uses riskScore */}
           <RiskGauge score={result.riskScore} />
-
-          {/* Score breakdown — ✅ reads modelScores.* */}
           <ScoreBreakdown result={result} />
 
-          {/* Verdict explanation */}
-          <div
-            style={{
-              marginTop: 14,
-              padding: "10px 12px",
-              background: "#1e293b",
-              borderRadius: 8,
-              lineHeight: 1.7,
-              color: "#94a3b8",
-            }}
-          >
+          <div className="mt-4 px-3.5 py-2.5 bg-[#1a1d24] rounded-xl leading-relaxed text-gray-400">
             {result.decision === "APPROVE" && (
-              <p style={{ margin: 0 }}>
-                Risk score below threshold. Payment of ₹
-                {Number(amount).toLocaleString("en-IN")} to account {toAccount} processed
-                successfully.
+              <p className="m-0">
+                Risk score below threshold. Payment of ₹{Number(amount).toLocaleString("en-IN")} to account{" "}
+                {toAccount} processed successfully.
               </p>
             )}
             {result.decision === "REVIEW" && (
-              <p style={{ margin: 0 }}>
+              <p className="m-0">
                 Elevated risk detected. Payment is held pending review.{" "}
-                <strong style={{ color: "#fbbf24" }}>
+                <strong className="text-amber-400">
                   You must complete KYC within {KYC_DEADLINE_REVIEW_H} hours
                 </strong>{" "}
-                to restore full services. A penalty of ₹
-                {PENALTY_REVIEW.toLocaleString("en-IN")} has been applied. Missing the KYC
-                deadline will incur an additional ₹
+                to restore full services. A penalty of ₹{PENALTY_REVIEW.toLocaleString("en-IN")} has been
+                applied. Missing the KYC deadline will incur an additional ₹
                 {PENALTY_KYC_MISS_REVIEW.toLocaleString("en-IN")} penalty.
               </p>
             )}
             {result.decision === "BLOCK" && (
-              <p style={{ margin: 0 }}>
+              <p className="m-0">
                 High-risk transaction detected by MuleHunter GNN + EIF.{" "}
-                <strong style={{ color: "#f87171" }}>
-                  ALL UPI transactions are now suspended.
-                </strong>{" "}
-                Complete KYC within {KYC_DEADLINE_BLOCK_H} hours to reinstate your account.
-                Penalty: ₹{PENALTY_BLOCK.toLocaleString("en-IN")}. Failure to complete KYC
-                will add ₹{PENALTY_KYC_MISS_BLOCK.toLocaleString("en-IN")} and trigger
-                regulatory escalation.
+                <strong className="text-red-400">All UPI transactions are now suspended.</strong> Complete
+                KYC within {KYC_DEADLINE_BLOCK_H} hours to reinstate your account. Penalty: ₹
+                {PENALTY_BLOCK.toLocaleString("en-IN")}. Failure to complete KYC will add ₹
+                {PENALTY_KYC_MISS_BLOCK.toLocaleString("en-IN")} and trigger regulatory escalation.
               </p>
             )}
           </div>
 
-          {/* ✅ Risk factors — was blockReason string, now riskFactors[] */}
           {result.riskFactors?.length > 0 && (
-            <p
-              style={{
-                marginTop: 10,
-                color: "#6b7280",
-                fontSize: 11,
-                letterSpacing: "0.04em",
-              }}
-            >
-              REASON: {result.riskFactors.join(", ")}
+            <p className="mt-2.5 text-gray-500 text-[11px]">
+              Reason: {result.riskFactors.join(", ")}
             </p>
           )}
 
-          {/* Expandable detail panel */}
           <DetailPanel result={result} />
         </div>
       )}
 
-      {showKycModal && (
-        <KycModal
-          onClose={() => setShowKycModal(false)}
-          onSuccess={handleKycSuccess}
-        />
-      )}
+      {showKycModal && <KycModal onClose={() => setShowKycModal(false)} onSuccess={handleKycSuccess} />}
     </div>
   );
 }
