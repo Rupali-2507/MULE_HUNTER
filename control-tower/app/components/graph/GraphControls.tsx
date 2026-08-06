@@ -56,7 +56,7 @@ export default function GraphControls({
           className="text-[10px] font-mono uppercase tracking-widest mb-1"
           style={{ color: "#4b5563" }}
         >
-          Mule Hunter
+          alertixAI
         </div>
         <div className="text-sm font-semibold text-white">
           Transaction Network

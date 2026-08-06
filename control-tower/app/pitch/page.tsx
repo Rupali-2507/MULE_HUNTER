@@ -58,7 +58,7 @@ export default function PitchPage() {
                 />
               </span>
               <span className="font-mono text-[10px] tracking-[.18em] uppercase text-white/35">
-                MULE HUNTER &nbsp;&bull;&nbsp; Team Alertix &nbsp;&bull;&nbsp; NIT Patna
+                alertixAI &nbsp;&bull;&nbsp; Team Alertix &nbsp;&bull;&nbsp; NIT Patna
               </span>
             </div>
           </div>
@@ -121,7 +121,7 @@ export default function PitchPage() {
 
         <iframe
           src="/presentation.html"
-          title="MULE HUNTER Pitch Deck — Team Alertix"
+          title="alertixAI Pitch Deck — Team Alertix"
           className="w-full h-full border-0"
           style={{ display: "block" }}
           onLoad={() => setLoaded(true)}

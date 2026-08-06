@@ -87,7 +87,7 @@ public class AuditPdfService {
         cb.fill();
 
         // Logo wordmark
-        Paragraph logo = new Paragraph("MULE HUNTER", F_DISPLAY);
+        Paragraph logo = new Paragraph("alertixAI", F_DISPLAY);
         logo.setAlignment(Element.ALIGN_LEFT);
         logo.setSpacingBefore(60);
         doc.add(logo);
@@ -303,7 +303,7 @@ public class AuditPdfService {
 
             "CONFIDENTIAL: This document is generated automatically from live system data and is " +
             "intended for internal use and regulatory compliance only. Do not distribute externally " +
-            "without authorisation from the MULE HUNTER system administrator.",
+            "without authorisation from the alertixAI system administrator.",
         };
 
         for (String p : paras) {
@@ -517,7 +517,7 @@ public class AuditPdfService {
             // Left text
             cb.showTextAligned(
                     Element.ALIGN_LEFT,
-                    "MULE HUNTER · NETWORK PERFORMANCE AUDIT · CONFIDENTIAL",
+                    "alertixAI · NETWORK PERFORMANCE AUDIT · CONFIDENTIAL",
                     document.leftMargin(),
                     10,
                     0

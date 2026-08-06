@@ -20,7 +20,7 @@ export default async function AdminPage() {
       <Navbar/>
       <AdminPanel initialUsers={JSON.parse(JSON.stringify(realUsers))}  session={session}/>
       <footer className="bg-[#1A1A1A] py-4 border-t border-gray-800 text-center text-gray-500 text-[10px]">
-        MULE HUNTER ADMINISTRATIVE CONTROL PANEL v1.0
+        alertixAI ADMINISTRATIVE CONTROL PANEL v1.0
       </footer>
     </main>
   );

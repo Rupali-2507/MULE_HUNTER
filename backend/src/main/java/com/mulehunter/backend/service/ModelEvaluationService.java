@@ -146,7 +146,7 @@ public class ModelEvaluationService {
                                     double gnn = gnnRaw != null ? gnnRaw : 0.0;
                                     double eif = eifRaw != null ? eifRaw : 0.0;
 
-                                    // MULE HUNTER "WINNING" ENSEMBLE (Targeting FPR < 1.0% for UPI Blocking)
+                                    // alertixAI "WINNING" ENSEMBLE (Targeting FPR < 1.0% for UPI Blocking)
                                     // Balanced for Industry Standards: Surgical Precision + High Recall
                                     boolean gnnIsStale = (gnnRaw != null && Math.abs(gnnRaw - 0.89) < 0.01); 
                                     double risk = eif;

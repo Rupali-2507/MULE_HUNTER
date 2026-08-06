@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Mule Hunter | Fraud Intelligence",
+  title: "alertixAI | Fraud Intelligence",
   description: "Fraud Intelligence and Digital Payment Security",
   icons: {
     icon: "/icon.png", // Path to your icon in the /public folder

@@ -1,18 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState } from "react";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_BASE_URL ?? "http://localhost:8082";
-
-const PENALTY_REVIEW = 500;
-const PENALTY_BLOCK  = 2000;
-const PENALTY_KYC_MISS_REVIEW = 1000;
-const PENALTY_KYC_MISS_BLOCK  = 5000;
-
-const KYC_DEADLINE_REVIEW_H = 24;
-const KYC_DEADLINE_BLOCK_H  = 12;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Decision = "APPROVE" | "REVIEW" | "BLOCK";
@@ -73,56 +65,7 @@ interface TransactionResponse {
   embeddingNorm: number;
 }
 
-interface KycState {
-  status: "none" | "pending_review" | "pending_block" | "completed" | "overdue";
-  deadlineIso: string | null;
-  deadlineHours: number | null;
-  penaltyApplied: number;
-  penaltyExtra: number;
-  triggeredBy: string | null;
-  accountBlocked: boolean;
-}
-
-const EMPTY_KYC: KycState = {
-  status: "none",
-  deadlineIso: null,
-  deadlineHours: null,
-  penaltyApplied: 0,
-  penaltyExtra: 0,
-  triggeredBy: null,
-  accountBlocked: false,
-};
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function loadKyc(account: string): KycState {
-  if (typeof window === "undefined") return EMPTY_KYC;
-  try {
-    const raw = localStorage.getItem(`mh_kyc_${account}`);
-    return raw ? JSON.parse(raw) : EMPTY_KYC;
-  } catch {
-    return EMPTY_KYC;
-  }
-}
-
-function saveKyc(account: string, state: KycState) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(`mh_kyc_${account}`, JSON.stringify(state));
-}
-
-function msLeft(isoDeadline: string | null): number {
-  if (!isoDeadline) return Infinity;
-  return new Date(isoDeadline).getTime() - Date.now();
-}
-
-function fmtCountdown(ms: number): string {
-  if (ms <= 0) return "00:00:00";
-  const s = Math.floor(ms / 1000);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
-}
-
 function riskColor(score: number): string {
   if (score < 0.45) return "#4ade80";
   if (score < 0.75) return "#fbbf24";
@@ -205,6 +148,30 @@ function ScoreBreakdown({ result }: { result: TransactionResponse }) {
   );
 }
 
+// Renders a value with a ✓ (clean/success) or ⚑ (flagged/risk) indicator
+function MetricBadge({
+  value,
+  isBad,
+  goodLabel,
+  badLabel,
+}: {
+  value: string | number;
+  isBad: boolean;
+  goodLabel?: string;
+  badLabel?: string;
+}) {
+  const color = isBad ? "#f87171" : "#4ade80";
+  const icon = isBad ? "⚑" : "✓";
+  const label = isBad ? badLabel : goodLabel;
+  return (
+    <span className="inline-flex items-center justify-end gap-1.5 text-right" style={{ color }}>
+      <span>{value}</span>
+      {label && <span className="text-[10px] text-gray-500">{label}</span>}
+      <span className="text-[10px]">{icon}</span>
+    </span>
+  );
+}
+
 function DetailPanel({ result }: { result: TransactionResponse }) {
   const [open, setOpen] = useState(false);
   return (
@@ -220,59 +187,72 @@ function DetailPanel({ result }: { result: TransactionResponse }) {
         <div className="mt-3 text-[11px] text-gray-400 space-y-4">
           <div>
             <p className="text-gray-500 mb-1.5">Network metrics</p>
-            <div className="grid grid-cols-2 gap-y-1 gap-x-4">
+            <div className="grid grid-cols-2 gap-y-1.5 gap-x-4">
               <span>Suspicious neighbors</span>
-              <span className="text-gray-100 text-right">
-                {result.networkMetrics?.suspiciousNeighbors ?? "—"}
-              </span>
+              <MetricBadge
+                value={result.networkMetrics?.suspiciousNeighbors ?? "—"}
+                isBad={(result.networkMetrics?.suspiciousNeighbors ?? 0) > 0}
+                goodLabel="clean"
+              />
               <span>Shared devices</span>
-              <span className="text-gray-100 text-right">
-                {result.networkMetrics?.sharedDevices ?? "—"}
-              </span>
+              <MetricBadge
+                value={result.networkMetrics?.sharedDevices ?? "—"}
+                isBad={(result.networkMetrics?.sharedDevices ?? 0) > 0}
+                goodLabel="clean"
+              />
               <span>Shared IPs</span>
-              <span className="text-gray-100 text-right">
-                {result.networkMetrics?.sharedIPs ?? "—"}
-              </span>
+              <MetricBadge
+                value={result.networkMetrics?.sharedIPs ?? "—"}
+                isBad={(result.networkMetrics?.sharedIPs ?? 0) > 0}
+                goodLabel="clean"
+              />
             </div>
           </div>
 
           <div>
             <p className="text-gray-500 mb-1.5">Mule ring detection</p>
-            <div className="grid grid-cols-2 gap-y-1 gap-x-4">
+            <div className="grid grid-cols-2 gap-y-1.5 gap-x-4">
               <span>Ring member</span>
-              <span
-                className="text-right"
-                style={{ color: result.muleRingDetection?.isMuleRingMember ? "#f87171" : "#4ade80" }}
-              >
-                {result.muleRingDetection?.isMuleRingMember ? "Yes" : "No"}
-              </span>
+              <MetricBadge
+                value={result.muleRingDetection?.isMuleRingMember ? "Yes" : "No"}
+                isBad={!!result.muleRingDetection?.isMuleRingMember}
+              />
               <span>Role</span>
-              <span className="text-gray-100 text-right">{result.muleRingDetection?.role ?? "—"}</span>
+              <MetricBadge
+                value={result.muleRingDetection?.role ?? "—"}
+                isBad={!!result.muleRingDetection?.role && result.muleRingDetection.role !== "NONE"}
+              />
               <span>Ring shape</span>
-              <span className="text-gray-100 text-right">{result.muleRingDetection?.ringShape ?? "—"}</span>
+              <MetricBadge
+                value={result.muleRingDetection?.ringShape ?? "—"}
+                isBad={!!result.muleRingDetection?.ringShape && result.muleRingDetection.ringShape !== "NONE"}
+              />
               <span>Ring size</span>
-              <span className="text-gray-100 text-right">{result.muleRingDetection?.ringSize ?? "—"}</span>
+              <MetricBadge
+                value={result.muleRingDetection?.ringSize ?? "—"}
+                isBad={(result.muleRingDetection?.ringSize ?? 0) > 1}
+              />
             </div>
           </div>
 
           <div>
             <p className="text-gray-500 mb-1.5">JA3 security</p>
-            <div className="grid grid-cols-2 gap-y-1 gap-x-4">
+            <div className="grid grid-cols-2 gap-y-1.5 gap-x-4">
               <span>JA3 detected</span>
-              <span
-                className="text-right"
-                style={{ color: result.ja3Security?.ja3Detected ? "#f87171" : "#4ade80" }}
-              >
-                {result.ja3Security?.ja3Detected ? "Yes" : "No"}
-              </span>
+              <MetricBadge
+                value={result.ja3Security?.ja3Detected ? "Yes" : "No"}
+                isBad={!!result.ja3Security?.ja3Detected}
+              />
               <span>JA3 risk</span>
-              <span className="text-gray-100 text-right">
-                {result.ja3Security?.ja3Risk?.toFixed(3) ?? "—"}
-              </span>
+              <MetricBadge
+                value={result.ja3Security?.ja3Risk?.toFixed(3) ?? "—"}
+                isBad={(result.ja3Security?.ja3Risk ?? 0) >= 0.45}
+              />
               <span>New device</span>
-              <span className="text-gray-100 text-right">
-                {result.ja3Security?.isNewDevice ? "Yes" : "No"}
-              </span>
+              <MetricBadge
+                value={result.ja3Security?.isNewDevice ? "Yes" : "No"}
+                isBad={!!result.ja3Security?.isNewDevice}
+              />
             </div>
           </div>
 
@@ -293,170 +273,133 @@ function DetailPanel({ result }: { result: TransactionResponse }) {
   );
 }
 
-interface KycBannerProps {
-  kyc: KycState;
-  onCompleteKyc: () => void;
+// ── Demo overrides ───────────────────────────────────────────────────────────
+// Sending to these fixed UPI ID + recipient-account pairs always returns a
+// guaranteed, scripted result, bypassing the backend entirely. Useful for
+// demos when live model output is unpredictable.
+interface DemoScenario {
+  upiId: string;
   account: string;
+  build: () => TransactionResponse;
 }
 
-function KycBanner({ kyc, onCompleteKyc }: KycBannerProps) {
-  const [mounted, setMounted] = useState(false);
-  const [countdown, setCountdown] = useState("");
-
-  useEffect(() => {
-    setMounted(true);
-    setCountdown(fmtCountdown(msLeft(kyc.deadlineIso)));
-
-    const t = setInterval(() => {
-      setCountdown(fmtCountdown(msLeft(kyc.deadlineIso)));
-    }, 1000);
-    return () => clearInterval(t);
-  }, [kyc.deadlineIso]);
-
-  if (!mounted || kyc.status === "none" || kyc.status === "completed") return null;
-  const isBlock = kyc.status === "pending_block" || kyc.accountBlocked;
-  const overdue = msLeft(kyc.deadlineIso) <= 0;
-
-  return (
-    <div
-      className={`rounded-xl p-4 mb-5 border ${
-        isBlock ? "bg-red-950/40 border-red-600/60" : "bg-amber-950/30 border-amber-500/50"
-      }`}
-    >
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-base">{isBlock ? "🔴" : "🟡"}</span>
-        <span className={`text-[13px] font-semibold ${isBlock ? "text-red-300" : "text-amber-300"}`}>
-          {isBlock
-            ? overdue
-              ? "KYC overdue — account suspended"
-              : "Action required: complete KYC within 12 hours"
-            : overdue
-            ? "KYC review overdue"
-            : "Action required: complete KYC within 24 hours"}
-        </span>
-      </div>
-
-      <p className="text-xs text-gray-300 leading-relaxed mb-3">
-        {isBlock
-          ? `A high-risk transaction flagged your account. All UPI transactions are suspended until KYC is verified. ${
-              overdue ? `Additional overdue penalty: ₹${PENALTY_KYC_MISS_BLOCK.toLocaleString("en-IN")} levied.` : ""
-            }`
-          : `A transaction triggered a fraud review. You may continue using UPI but KYC must be completed within 24 hours. ${
-              overdue ? `Additional overdue penalty: ₹${PENALTY_KYC_MISS_REVIEW.toLocaleString("en-IN")} levied.` : ""
-            }`}
-      </p>
-
-      {!overdue && (
-        <div className="flex items-center gap-3 mb-3">
-          <span className="text-[11px] text-gray-500">Time remaining</span>
-          <span className={`text-xl font-bold tracking-wider ${isBlock ? "text-red-400" : "text-amber-400"}`}>
-            {countdown}
-          </span>
-        </div>
-      )}
-
-      <div className="flex items-center gap-3">
-        <button
-          onClick={onCompleteKyc}
-          className={`text-white text-xs font-semibold rounded-lg px-4 py-2 transition-colors ${
-            isBlock ? "bg-red-600 hover:bg-red-500" : "bg-amber-600 hover:bg-amber-500"
-          }`}
-        >
-          Complete KYC now →
-        </button>
-        <span className="text-[11px] text-gray-500">Ref: {kyc.triggeredBy?.slice(0, 12)}…</span>
-      </div>
-    </div>
-  );
+function buildDemoApproveResponse(): TransactionResponse {
+  return {
+    transactionId: uuid(),
+    decision: "APPROVE",
+    riskScore: 0.06,
+    riskLevel: "LOW",
+    suspectedFraud: false,
+    modelScores: {
+      gnn: 0.04,
+      eif: 0.09,
+      behavior: 0.05,
+      graph: 0.03,
+      ja3: 0.02,
+      confidence: 0.97,
+      eifConfidence: 0.95,
+      eifExplanation: "No anomalous isolation-forest partitions detected. Account behaves within normal bounds.",
+      eifTopFactors: {},
+    },
+    networkMetrics: {
+      suspiciousNeighbors: 0,
+      sharedDevices: 0,
+      sharedIPs: 0,
+      centralityScore: 0.01,
+      transactionLoops: 0,
+    },
+    fraudCluster: {
+      clusterId: -1,
+      clusterSize: 0,
+      clusterRiskScore: null,
+    },
+    muleRingDetection: {
+      isMuleRingMember: false,
+      ringShape: "NONE",
+      ringSize: 0,
+      role: "NONE",
+      hubAccount: "",
+      ringAccounts: [],
+    },
+    riskFactors: [],
+    ja3Security: {
+      ja3Risk: 0.02,
+      ja3Detected: false,
+      velocity: 1,
+      fanout: 1,
+      isNewDevice: false,
+      isNewJa3: false,
+    },
+    embeddingNorm: 0.1123,
+  };
 }
 
-// ── KYC Modal ─────────────────────────────────────────────────────────────────
-function KycModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
-  const [step, setStep] = useState<"form" | "verifying" | "done">("form");
-  const [aadhaar, setAadhaar] = useState("");
-  const [pan, setPan] = useState("");
-  const [selfie, setSelfie] = useState(false);
+function buildDemoFraudResponse(): TransactionResponse {
+  return {
+    transactionId: uuid(),
+    decision: "BLOCK",
+    riskScore: 0.91,
+    riskLevel: "HIGH",
+    suspectedFraud: true,
+    modelScores: {
+      gnn: 0.94,
+      eif: 0.88,
+      behavior: 0.82,
+      graph: 0.9,
+      ja3: 0.76,
+      confidence: 0.96,
+      eifConfidence: 0.93,
+      eifExplanation:
+        "Infrastructure IP sharing detected within a fraud cluster. High community fraud density combined with rapid pass-through transaction pattern.",
+      eifTopFactors: { shared_ip_cluster: 0.41, pass_through_velocity: 0.33, device_reuse: 0.26 },
+    },
+    networkMetrics: {
+      suspiciousNeighbors: 184,
+      sharedDevices: 232,
+      sharedIPs: 391,
+      centralityScore: 0.87,
+      transactionLoops: 3,
+    },
+    fraudCluster: {
+      clusterId: 42,
+      clusterSize: 57,
+      clusterRiskScore: 0.89,
+    },
+    muleRingDetection: {
+      isMuleRingMember: true,
+      ringShape: "CYCLE",
+      ringSize: 6,
+      role: "MULE",
+      hubAccount: "62022519",
+      ringAccounts: ["62022519", "62022520", "62022521", "62022522"],
+    },
+    riskFactors: [
+      "Circular flows detected: money bouncing back",
+      "Two-hop neighbourhood has elevated fraud density",
+      "connected_to_high_risk_accounts",
+      "shared_device_with_multiple_accounts",
+      "rapid_pass_through_transactions",
+    ],
+    ja3Security: {
+      ja3Risk: 0.72,
+      ja3Detected: true,
+      velocity: 14,
+      fanout: 9,
+      isNewDevice: true,
+      isNewJa3: true,
+    },
+    embeddingNorm: 0.8847,
+  };
+}
 
-  async function submit() {
-    if (!aadhaar || !pan || !selfie) return;
-    setStep("verifying");
-    await new Promise((r) => setTimeout(r, 2400));
-    setStep("done");
-    setTimeout(onSuccess, 1200);
-  }
+const DEMO_SCENARIOS: DemoScenario[] = [
+  { upiId: "ratnesh@ybl", account: "23460024", build: buildDemoApproveResponse },
+  { upiId: "riya@ybl", account: "62022519", build: buildDemoFraudResponse },
+];
 
-  return (
-    <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-[9999] px-4">
-      <div className="bg-[#12141a] border border-gray-800 rounded-2xl p-7 w-full max-w-[400px]">
-        {step === "form" && (
-          <>
-            <h2 className="text-white text-base font-semibold mb-5">KYC Verification</h2>
-
-            <label className="text-[11px] text-gray-500 block mb-1.5">Aadhaar number (12 digits)</label>
-            <input
-              maxLength={12}
-              value={aadhaar}
-              onChange={(e) => setAadhaar(e.target.value)}
-              placeholder="1234 5678 9012"
-              className="w-full bg-[#1a1d24] border border-gray-800 rounded-xl text-white text-sm px-3.5 py-2.5 mb-4 outline-none focus:border-[#CAFF33]/60 transition-colors"
-            />
-
-            <label className="text-[11px] text-gray-500 block mb-1.5">PAN number</label>
-            <input
-              maxLength={10}
-              value={pan}
-              onChange={(e) => setPan(e.target.value.toUpperCase())}
-              placeholder="ABCDE1234F"
-              className="w-full bg-[#1a1d24] border border-gray-800 rounded-xl text-white text-sm px-3.5 py-2.5 mb-4 outline-none focus:border-[#CAFF33]/60 transition-colors"
-            />
-
-            <label className="flex items-center gap-2.5 text-xs text-gray-300 mb-5 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={selfie}
-                onChange={(e) => setSelfie(e.target.checked)}
-                className="accent-[#CAFF33]"
-              />
-              I consent to liveness / selfie verification
-            </label>
-
-            <div className="flex gap-2.5">
-              <button
-                onClick={submit}
-                disabled={!aadhaar || !pan || !selfie}
-                className="flex-1 bg-[#CAFF33] text-black rounded-xl py-2.5 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-95 transition"
-              >
-                Submit for verification
-              </button>
-              <button
-                onClick={onClose}
-                className="bg-[#1a1d24] text-gray-400 border border-gray-800 rounded-xl px-4 py-2.5 text-xs hover:text-gray-200 transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </>
-        )}
-
-        {step === "verifying" && (
-          <div className="text-center py-8">
-            <div className="w-10 h-10 border-[3px] border-[#CAFF33] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-gray-300 text-sm">Verifying identity with UIDAI & NSDL…</p>
-          </div>
-        )}
-
-        {step === "done" && (
-          <div className="text-center py-8">
-            <div className="w-12 h-12 bg-green-900/40 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl">
-              ✓
-            </div>
-            <p className="text-green-400 text-sm font-semibold">KYC verified successfully</p>
-            <p className="text-gray-500 text-xs mt-1.5">All services restored. Restrictions lifted.</p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+function findDemoScenario(upiId: string, account: string): DemoScenario | undefined {
+  const upi = upiId.trim().toLowerCase();
+  return DEMO_SCENARIOS.find((s) => s.upiId === upi && s.account === account.trim());
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
@@ -473,89 +416,32 @@ export default function PaymentSection({
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<TransactionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showKycModal, setShowKycModal] = useState(false);
-
-  const [kyc, setKyc] = useState<KycState>(EMPTY_KYC);
-
-  useEffect(() => {
-    setKyc(loadKyc(currentUserAccount));
-  }, [currentUserAccount]);
-
-  const kycRef = useRef(kyc);
-  kycRef.current = kyc;
-
-  useEffect(() => {
-    const t = setInterval(() => {
-      const cur = kycRef.current;
-      if (
-        (cur.status === "pending_review" || cur.status === "pending_block") &&
-        cur.deadlineIso &&
-        msLeft(cur.deadlineIso) <= 0
-      ) {
-        const extra =
-          cur.status === "pending_block" ? PENALTY_KYC_MISS_BLOCK : PENALTY_KYC_MISS_REVIEW;
-        const updated: KycState = {
-          ...cur,
-          status: "overdue",
-          penaltyExtra: extra,
-          accountBlocked: true,
-        };
-        setKyc(updated);
-        saveKyc(currentUserAccount, updated);
-      }
-    }, 5000);
-    return () => clearInterval(t);
-  }, [currentUserAccount]);
-
-  const accountBlocked = kyc.accountBlocked && kyc.status !== "completed";
-
-  const applyKycState = useCallback(
-    (decision: Decision, txId: string) => {
-      if (decision === "APPROVE") return;
-
-      const hoursDeadline = decision === "BLOCK" ? KYC_DEADLINE_BLOCK_H : KYC_DEADLINE_REVIEW_H;
-      const deadline = new Date(Date.now() + hoursDeadline * 60 * 60 * 1000).toISOString();
-      const penalty = decision === "BLOCK" ? PENALTY_BLOCK : PENALTY_REVIEW;
-
-      const updated: KycState = {
-        status: decision === "BLOCK" ? "pending_block" : "pending_review",
-        deadlineIso: kyc.deadlineIso ?? deadline,
-        deadlineHours: hoursDeadline,
-        penaltyApplied: kyc.penaltyApplied + penalty,
-        penaltyExtra: 0,
-        triggeredBy: txId,
-        accountBlocked: decision === "BLOCK",
-      };
-      setKyc(updated);
-      saveKyc(currentUserAccount, updated);
-    },
-    [kyc, currentUserAccount]
-  );
-
-  const handleKycSuccess = useCallback(() => {
-    const cleared: KycState = {
-      ...EMPTY_KYC,
-      status: "completed",
-      penaltyApplied: kyc.penaltyApplied,
-    };
-    setKyc(cleared);
-    saveKyc(currentUserAccount, cleared);
-    setShowKycModal(false);
-  }, [kyc.penaltyApplied, currentUserAccount]);
 
   async function submitPayment() {
     if (!toAccount || !amount || isNaN(Number(amount)) || Number(amount) <= 0) {
       setError("Please enter a valid recipient account and amount.");
       return;
     }
-    if (accountBlocked) {
-      setError("Your account is blocked. Complete KYC to resume UPI transactions.");
-      return;
-    }
 
     setLoading(true);
     setError(null);
     setResult(null);
+
+    // Demo override: skip the backend for scripted upi+account pairs.
+    const scenario = findDemoScenario(toUpi, toAccount);
+    if (scenario) {
+      await new Promise((r) => setTimeout(r, 900)); // mimic network latency
+      const data = scenario.build();
+      setResult(data);
+      if (data.decision === "APPROVE") {
+        setToUpi("");
+        setToAccount("");
+        setAmount("");
+        setNote("");
+      }
+      setLoading(false);
+      return;
+    }
 
     const payload = {
       transactionId: uuid(),
@@ -595,7 +481,6 @@ export default function PaymentSection({
 
       const data: TransactionResponse = await res.json();
       setResult(data);
-      applyKycState(data.decision, data.transactionId);
 
       if (data.decision === "APPROVE") {
         setToUpi("");
@@ -623,12 +508,8 @@ export default function PaymentSection({
         </p>
       </div>
 
-      <KycBanner kyc={kyc} account={currentUserAccount} onCompleteKyc={() => setShowKycModal(true)} />
-
       {/* Payment form */}
-      <div
-        className={`space-y-4 ${accountBlocked ? "opacity-40 pointer-events-none" : ""}`}
-      >
+      <div className="space-y-4">
         <input
           value={toUpi}
           onChange={(e) => setToUpi(e.target.value)}
@@ -708,31 +589,27 @@ export default function PaymentSection({
           <RiskGauge score={result.riskScore} />
           <ScoreBreakdown result={result} />
 
-          <div className="mt-4 px-3.5 py-2.5 bg-[#1a1d24] rounded-xl leading-relaxed text-gray-400">
+          <div
+            className={`mt-4 px-3.5 py-2.5 rounded-xl leading-relaxed text-gray-400 ${
+              result.decision === "APPROVE" ? "bg-green-950/30 border border-green-600/40" : "bg-[#1a1d24]"
+            }`}
+          >
             {result.decision === "APPROVE" && (
-              <p className="m-0">
-                Risk score below threshold. Payment of ₹{Number(amount).toLocaleString("en-IN")} to account{" "}
-                {toAccount} processed successfully.
+              <p className="m-0 text-gray-300">
+                <span className="text-green-400 font-semibold">✓ All checks passed.</span> Risk score below
+                threshold across GNN, EIF, behavior, and graph signals. Payment of ₹
+                {Number(amount).toLocaleString("en-IN")} to account {toAccount} processed successfully.
               </p>
             )}
             {result.decision === "REVIEW" && (
               <p className="m-0">
-                Elevated risk detected. Payment is held pending review.{" "}
-                <strong className="text-amber-400">
-                  You must complete KYC within {KYC_DEADLINE_REVIEW_H} hours
-                </strong>{" "}
-                to restore full services. A penalty of ₹{PENALTY_REVIEW.toLocaleString("en-IN")} has been
-                applied. Missing the KYC deadline will incur an additional ₹
-                {PENALTY_KYC_MISS_REVIEW.toLocaleString("en-IN")} penalty.
+                Elevated risk detected. Payment is held pending manual review by the fraud team.
               </p>
             )}
             {result.decision === "BLOCK" && (
               <p className="m-0">
                 High-risk transaction detected by MuleHunter GNN + EIF.{" "}
-                <strong className="text-red-400">All UPI transactions are now suspended.</strong> Complete
-                KYC within {KYC_DEADLINE_BLOCK_H} hours to reinstate your account. Penalty: ₹
-                {PENALTY_BLOCK.toLocaleString("en-IN")}. Failure to complete KYC will add ₹
-                {PENALTY_KYC_MISS_BLOCK.toLocaleString("en-IN")} and trigger regulatory escalation.
+                <strong className="text-red-400">Transaction blocked.</strong>
               </p>
             )}
           </div>
@@ -746,8 +623,6 @@ export default function PaymentSection({
           <DetailPanel result={result} />
         </div>
       )}
-
-      {showKycModal && <KycModal onClose={() => setShowKycModal(false)} onSuccess={handleKycSuccess} />}
     </div>
   );
 }
