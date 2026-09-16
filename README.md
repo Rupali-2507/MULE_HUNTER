@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎯 alertixAI
+# 🎯 MULE HUNTER
 
 ### **Defense in Depth — Real-Time Financial Fraud Detection Platform**
 *Stopping money mule networks before they cash out*
